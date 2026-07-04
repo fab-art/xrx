@@ -457,8 +457,22 @@ export default function App() {
     setCurrentIndex(i => Math.max(0, Math.min(cards.length - 1, i + delta)))
   }
 
+  useEffect(() => {
+    if (stage !== 'verify' || !currentCard) return
+    function onKey(e) {
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.key === 'ArrowRight') goTo(1)
+      else if (e.key === 'ArrowLeft') goTo(-1)
+      else if (e.key.toLowerCase() === 'v') updateCard(currentCard.id, { status: 'verified' })
+      else if (e.key.toLowerCase() === 'r') updateCard(currentCard.id, { status: 'rejected' })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [stage, currentCard, cards.length])
+
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       <header className="flex items-start justify-between gap-4 mb-2">
         <div>
           <h1 className="text-xl font-medium tracking-tight">Verify</h1>
@@ -551,7 +565,8 @@ export default function App() {
       )}
 
       {stage === 'verify' && currentCard && (
-        <div className="max-w-xl mx-auto">
+        <div className="lg:grid lg:grid-cols-[1fr_280px] lg:gap-6 lg:items-start">
+        <div className="max-w-xl mx-auto lg:mx-0 lg:max-w-none">
           <div className="mb-5">
             <div className="h-1.5 rounded-full bg-border overflow-hidden mb-2">
               <div
@@ -729,6 +744,43 @@ export default function App() {
               Next
             </button>
           </div>
+        </div>
+
+        <aside className="hidden lg:flex flex-col gap-4 sticky top-6">
+          <div className="rounded-card border border-border bg-surface-1 p-4">
+            <h2 className="text-xs font-medium text-ink-muted mb-2 uppercase tracking-wide">Keyboard shortcuts</h2>
+            <ul className="text-sm flex flex-col gap-1.5">
+              <li className="flex justify-between"><span className="text-ink-muted">Next / Previous</span><span>→ / ←</span></li>
+              <li className="flex justify-between"><span className="text-ink-muted">Verify</span><span>V</span></li>
+              <li className="flex justify-between"><span className="text-ink-muted">Reject</span><span>R</span></li>
+            </ul>
+          </div>
+
+          <div className="rounded-card border border-border bg-surface-1 p-4 max-h-[60vh] overflow-y-auto">
+            <h2 className="text-xs font-medium text-ink-muted mb-2 uppercase tracking-wide">All vouchers</h2>
+            <ul className="flex flex-col gap-1">
+              {cards.map((c, i) => (
+                <li key={c.id}>
+                  <button
+                    onClick={() => setCurrentIndex(i)}
+                    className={`w-full flex items-center justify-between text-xs px-2 py-1.5 rounded-lg text-left transition-colors ${
+                      i === currentIndex ? 'bg-brand text-white' : 'hover:bg-surface-2'
+                    }`}
+                  >
+                    <span className="truncate">
+                      {i + 1}. {mapping.patient_name ? c.row[mapping.patient_name] : `Record ${c.id + 1}`}
+                    </span>
+                    <span
+                      className={`ml-2 w-1.5 h-1.5 rounded-full shrink-0 ${
+                        c.status === 'verified' ? 'bg-brand' : c.status === 'rejected' ? 'bg-danger' : 'bg-warn'
+                      } ${i === currentIndex ? 'ring-1 ring-white' : ''}`}
+                    />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </aside>
         </div>
       )}
 
