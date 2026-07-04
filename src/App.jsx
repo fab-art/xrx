@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
-import './App.css'
 
 const STORAGE_KEY = 'verify-app-state-v1'
 
@@ -192,47 +191,80 @@ export default function App() {
   }
 
   return (
-    <div className="app">
-      <header className="header">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <header className="flex items-start justify-between gap-4 mb-2">
         <div>
-          <h1>Verify</h1>
-          <p className="subtitle">Data preparation and verification dashboard</p>
+          <h1 className="text-xl font-medium tracking-tight">Verify</h1>
+          <p className="text-sm text-ink-muted mt-1">Data preparation and verification dashboard</p>
         </div>
         {stage !== 'upload' && (
-          <div className="header-actions">
-            {lastSaved && <span className="saved-hint">Saved {lastSaved.toLocaleTimeString()}</span>}
-            <button className="ghost" onClick={reset}>New file</button>
+          <div className="flex items-center gap-3">
+            {lastSaved && (
+              <span className="hidden sm:inline text-xs text-ink-muted">
+                Saved {lastSaved.toLocaleTimeString()}
+              </span>
+            )}
+            <button
+              onClick={reset}
+              className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface-1 hover:bg-surface-2 transition-colors"
+            >
+              New file
+            </button>
           </div>
         )}
       </header>
 
       {stage !== 'upload' && (
-        <nav className="tabs">
-          <button className={stage === 'map' ? 'tab active' : 'tab'} onClick={() => setStage('map')}>1. Map columns</button>
-          <button className={stage === 'verify' ? 'tab active' : 'tab'} onClick={() => setStage('verify')}>2. Verify</button>
-          <button className={stage === 'dashboard' ? 'tab active' : 'tab'} onClick={() => setStage('dashboard')}>3. Dashboard</button>
+        <nav className="flex gap-1 border-b border-border mb-6 mt-4 overflow-x-auto" aria-label="Workflow steps">
+          {[
+            ['map', '1. Map columns'],
+            ['verify', '2. Verify'],
+            ['dashboard', '3. Dashboard']
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setStage(key)}
+              aria-current={stage === key ? 'page' : undefined}
+              className={`text-sm px-1 pb-3 mr-5 border-b-2 whitespace-nowrap transition-colors ${
+                stage === key
+                  ? 'border-brand text-ink font-medium'
+                  : 'border-transparent text-ink-muted hover:text-ink'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </nav>
       )}
 
       {stage === 'upload' && (
-        <div className="upload-zone">
-          <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} id="file-upload" />
-          <label htmlFor="file-upload" className="upload-label">
-            <span className="upload-icon">+</span>
-            <span>Upload Excel or CSV file</span>
-            <span className="upload-hint">.xlsx, .xls or .csv</span>
+        <div className="mt-10 rounded-card border border-dashed border-border bg-surface-1 py-16 px-6 text-center">
+          <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} id="file-upload" className="sr-only" />
+          <label htmlFor="file-upload" className="flex flex-col items-center gap-3 cursor-pointer">
+            <span className="w-12 h-12 rounded-full bg-brand-light text-brand flex items-center justify-center text-2xl font-medium">
+              +
+            </span>
+            <span className="text-sm font-medium">Upload Excel or CSV file</span>
+            <span className="text-xs text-ink-muted">.xlsx, .xls or .csv</span>
           </label>
         </div>
       )}
 
       {stage === 'map' && (
-        <div className="map-panel">
-          <p className="section-hint">Map your file's columns to the fields below. Guesses are pre-filled — adjust any that look wrong.</p>
-          <div className="map-grid">
+        <div className="rounded-card border border-border bg-surface-1 p-5 sm:p-6 max-w-2xl">
+          <p className="text-sm text-ink-muted mb-5">
+            Map your file's columns to the fields below. Guesses are pre-filled — adjust any that look wrong.
+          </p>
+          <div className="flex flex-col gap-4 mb-6">
             {FIELD_DEFS.map(f => (
-              <div className="map-row" key={f.key}>
-                <label>{f.label}</label>
-                <select value={mapping[f.key] || ''} onChange={e => updateMapping(f.key, e.target.value)}>
+              <div key={f.key} className="flex items-center justify-between gap-4">
+                <label htmlFor={`map-${f.key}`} className="text-sm min-w-[180px]">{f.label}</label>
+                <select
+                  id={`map-${f.key}`}
+                  value={mapping[f.key] || ''}
+                  onChange={e => updateMapping(f.key, e.target.value)}
+                  className="flex-1 max-w-xs border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2"
+                >
                   <option value="">— not mapped —</option>
                   {headers.map(h => (
                     <option key={h} value={h}>{h}</option>
@@ -241,193 +273,284 @@ export default function App() {
               </div>
             ))}
           </div>
-          <button onClick={() => setStage('verify')}>Continue to verification</button>
+          <button
+            onClick={() => setStage('verify')}
+            className="bg-brand text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-brand-dark transition-colors"
+          >
+            Continue to verification
+          </button>
         </div>
       )}
 
       {stage === 'verify' && currentCard && (
-        <div className="verify-panel">
-          <div className="verify-progress">
-            <div className="progress-track">
-              <div className="progress-fill" style={{ width: `${summary.progressPct}%` }} />
+        <div className="max-w-xl mx-auto">
+          <div className="mb-5">
+            <div className="h-1.5 rounded-full bg-border overflow-hidden mb-2">
+              <div
+                className="h-full bg-brand transition-all"
+                style={{ width: `${summary.progressPct}%` }}
+              />
             </div>
-            <span className="progress-text">{currentIndex + 1} of {cards.length} · {summary.progressPct}% reviewed</span>
+            <span className="text-xs text-ink-muted">
+              {currentIndex + 1} of {cards.length} · {summary.progressPct}% reviewed
+            </span>
           </div>
 
-          <div className={`card verify-card status-${currentCard.status}`}>
-            <div className="card-header">
-              <span className="card-title">
+          <div
+            className={`rounded-card border bg-surface-1 p-5 flex flex-col gap-4 border-l-4 ${
+              currentCard.status === 'verified'
+                ? 'border-l-brand border-border'
+                : currentCard.status === 'rejected'
+                ? 'border-l-danger border-border'
+                : 'border-l-border border-border'
+            }`}
+          >
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="font-medium text-[15px]">
                 {mapping.patient_name ? currentCard.row[mapping.patient_name] : `Record ${currentCard.id + 1}`}
               </span>
-              {repeatedIds.has(currentCard.id) && <span className="badge badge-warn">Repeated patient</span>}
+              {repeatedIds.has(currentCard.id) && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-warn-light text-warn-dark">Repeated patient</span>
+              )}
             </div>
 
-            <div className="card-fields">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 py-3 border-y border-border">
               {headers.slice(0, 8).map(h => (
-                <div className="field" key={h}>
-                  <span className="field-label">{h}</span>
-                  <span className="field-value">{String(currentCard.row[h])}</span>
+                <div key={h} className="overflow-hidden">
+                  <div className="text-[11px] text-ink-muted">{h}</div>
+                  <div className="text-sm truncate">{String(currentCard.row[h])}</div>
                 </div>
               ))}
             </div>
 
-            <div className="extra-section">
-              <div className="extra-row">
-                <label>Prescription date</label>
+            <div className="flex flex-col gap-2.5 py-3 border-b border-border">
+              <div className="flex items-center justify-between gap-3">
+                <label htmlFor="prescription-date" className="text-sm text-ink-muted shrink-0">Prescription date</label>
                 <input
+                  id="prescription-date"
                   type="date"
                   value={currentCard.prescriptionDate}
                   onChange={e => updateCard(currentCard.id, { prescriptionDate: e.target.value })}
+                  className="flex-1 border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2 text-right"
                 />
               </div>
-              <div className="extra-row">
-                <label>Health facility</label>
+              <div className="flex items-center justify-between gap-3">
+                <label htmlFor="facility-override" className="text-sm text-ink-muted shrink-0">Health facility</label>
                 <input
+                  id="facility-override"
                   type="text"
                   placeholder={mapping.facility_name ? String(currentCard.row[mapping.facility_name] || '') : 'Enter facility name'}
                   value={currentCard.facilityOverride}
                   onChange={e => updateCard(currentCard.id, { facilityOverride: e.target.value })}
+                  className="flex-1 border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2 text-right"
                 />
               </div>
             </div>
 
             {mapping.amount && (
-              <div className="amount-block">
-                <div className="amount-row">
-                  <span>Original amount</span>
+              <div className="flex flex-col gap-1.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-ink-muted">Original amount</span>
                   <span>{originalAmount(currentCard)?.toLocaleString()}</span>
                 </div>
-                <div className="amount-row deduct-input">
-                  <span>Deduct</span>
+                <div className="flex justify-between items-center">
+                  <span className="text-ink-muted">Deduct</span>
                   <input
                     type="number"
                     min="0"
                     value={currentCard.deduction || ''}
                     placeholder="0"
                     onChange={e => updateCard(currentCard.id, { deduction: e.target.value })}
+                    className="w-24 border border-border rounded-lg px-2.5 py-1 text-sm bg-surface-2 text-right"
                   />
                 </div>
-                <div className="amount-row final">
-                  <span>Approved amount (auto)</span>
+                <div className="flex justify-between font-medium pt-1 border-t border-border">
+                  <span>Approved amount</span>
                   <span>{approvedAmount(currentCard)?.toLocaleString()}</span>
                 </div>
               </div>
             )}
 
             <textarea
-              className="comment-box"
               placeholder="Add comment..."
               value={currentCard.comment}
               onChange={e => updateCard(currentCard.id, { comment: e.target.value })}
+              className="w-full min-h-[64px] border border-border rounded-lg px-3 py-2 text-sm bg-surface-2 resize-y"
             />
 
-            <div className="card-buttons">
+            <div className="flex gap-2">
               <button
-                className={currentCard.status === 'verified' ? 'verify-btn active' : 'verify-btn'}
                 onClick={() => updateCard(currentCard.id, { status: 'verified' })}
+                className={`flex-1 text-sm rounded-lg px-3 py-2 border transition-colors ${
+                  currentCard.status === 'verified'
+                    ? 'bg-brand text-white border-brand'
+                    : 'border-border bg-surface-2 hover:bg-surface-0'
+                }`}
               >
                 Verify
               </button>
               <button
-                className={currentCard.status === 'rejected' ? 'reject-btn active' : 'reject-btn'}
                 onClick={() => updateCard(currentCard.id, { status: 'rejected' })}
+                className={`flex-1 text-sm rounded-lg px-3 py-2 border transition-colors ${
+                  currentCard.status === 'rejected'
+                    ? 'bg-danger text-white border-danger'
+                    : 'border-border bg-surface-2 hover:bg-surface-0'
+                }`}
               >
                 Reject
               </button>
               {currentCard.status !== 'pending' && (
-                <button className="ghost" onClick={() => updateCard(currentCard.id, { status: 'pending' })}>Reset</button>
+                <button
+                  onClick={() => updateCard(currentCard.id, { status: 'pending' })}
+                  className="text-sm rounded-lg px-3 py-2 border border-border bg-transparent hover:bg-surface-0"
+                >
+                  Reset
+                </button>
               )}
             </div>
           </div>
 
-          <div className="nav-buttons">
-            <button onClick={() => goTo(-1)} disabled={currentIndex === 0}>Previous</button>
-            <button onClick={() => goTo(1)} disabled={currentIndex === cards.length - 1}>Next</button>
+          <div className="flex justify-between mt-4">
+            <button
+              onClick={() => goTo(-1)}
+              disabled={currentIndex === 0}
+              className="text-sm border border-border rounded-lg px-5 py-2 bg-surface-1 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-2"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => goTo(1)}
+              disabled={currentIndex === cards.length - 1}
+              className="text-sm border border-border rounded-lg px-5 py-2 bg-surface-1 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-2"
+            >
+              Next
+            </button>
           </div>
         </div>
       )}
 
       {stage === 'dashboard' && (
-        <div className="dashboard-panel">
-          <div className="summary-bar">
-            <div className="summary-card">
-              <span className="summary-label">Total vouchers</span>
-              <span className="summary-value">{summary.total}</span>
-            </div>
-            <div className="summary-card verified">
-              <span className="summary-label">Verified</span>
-              <span className="summary-value">{summary.verified}</span>
-            </div>
-            <div className="summary-card rejected">
-              <span className="summary-label">Rejected</span>
-              <span className="summary-value">{summary.rejected}</span>
-            </div>
-            <div className="summary-card pending">
-              <span className="summary-label">Pending</span>
-              <span className="summary-value">{summary.pending}</span>
-            </div>
-            <div className="summary-card">
-              <span className="summary-label">Original total</span>
-              <span className="summary-value">{summary.totalOriginal.toLocaleString()}</span>
-            </div>
-            <div className="summary-card">
-              <span className="summary-label">Approved total</span>
-              <span className="summary-value">{summary.totalApproved.toLocaleString()}</span>
-            </div>
+        <div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+            {[
+              ['Total vouchers', summary.total, ''],
+              ['Verified', summary.verified, 'text-brand'],
+              ['Rejected', summary.rejected, 'text-danger'],
+              ['Pending', summary.pending, 'text-warn'],
+              ['Original total', summary.totalOriginal.toLocaleString(), ''],
+              ['Approved total', summary.totalApproved.toLocaleString(), '']
+            ].map(([label, value, color]) => (
+              <div key={label} className="rounded-card border border-border bg-surface-1 p-3.5">
+                <div className="text-xs text-ink-muted">{label}</div>
+                <div className={`text-xl font-medium mt-1 ${color}`}>{value}</div>
+              </div>
+            ))}
           </div>
 
-          <div className="progress-track">
-            <div className="progress-fill" style={{ width: `${summary.progressPct}%` }} />
+          <div className="h-1.5 rounded-full bg-border overflow-hidden mb-1.5">
+            <div className="h-full bg-brand transition-all" style={{ width: `${summary.progressPct}%` }} />
           </div>
-          <p className="progress-text">{summary.progressPct}% of vouchers reviewed</p>
+          <p className="text-xs text-ink-muted mb-5">{summary.progressPct}% of vouchers reviewed</p>
 
-          <div className="toolbar">
+          <div className="flex flex-wrap items-center gap-2 mb-4">
             <input
-              className="search-input"
               placeholder="Search all fields..."
               value={search}
               onChange={e => setSearch(e.target.value)}
+              aria-label="Search vouchers"
+              className="border border-border rounded-lg px-3 py-1.5 text-sm bg-surface-1 min-w-[200px] flex-1 sm:flex-none"
             />
-            <div className="filters">
+            <div className="flex gap-1" role="group" aria-label="Filter by status">
               {['all', 'pending', 'verified', 'rejected'].map(f => (
-                <button key={f} className={statusFilter === f ? 'filter-btn active' : 'filter-btn'} onClick={() => setStatusFilter(f)}>{f}</button>
+                <button
+                  key={f}
+                  onClick={() => setStatusFilter(f)}
+                  aria-pressed={statusFilter === f}
+                  className={`text-xs capitalize rounded-lg px-2.5 py-1.5 border transition-colors ${
+                    statusFilter === f ? 'bg-ink text-surface-1 border-ink' : 'border-border bg-surface-1 hover:bg-surface-2'
+                  }`}
+                >
+                  {f}
+                </button>
               ))}
             </div>
-            <div className="filters">
-              <button className={advFilter === 'none' ? 'filter-btn active' : 'filter-btn'} onClick={() => setAdvFilter('none')}>No filter</button>
-              <button className={advFilter === 'repeated' ? 'filter-btn active' : 'filter-btn'} onClick={() => setAdvFilter('repeated')}>Repeated records</button>
-              <button className={advFilter === 'over40000' ? 'filter-btn active' : 'filter-btn'} onClick={() => setAdvFilter('over40000')}>Over 40,000</button>
+            <div className="flex gap-1" role="group" aria-label="Advanced filters">
+              {[
+                ['none', 'No filter'],
+                ['repeated', 'Repeated records'],
+                ['over40000', 'Over 40,000']
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setAdvFilter(key)}
+                  aria-pressed={advFilter === key}
+                  className={`text-xs rounded-lg px-2.5 py-1.5 border transition-colors ${
+                    advFilter === key ? 'bg-ink text-surface-1 border-ink' : 'border-border bg-surface-1 hover:bg-surface-2'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-            <button onClick={exportResults}>Export</button>
+            <button
+              onClick={exportResults}
+              className="ml-auto text-sm rounded-lg px-3.5 py-1.5 bg-brand text-white hover:bg-brand-dark transition-colors"
+            >
+              Export
+            </button>
           </div>
 
-          <div className="table-wrap">
-            <table className="voucher-table">
+          <div className="overflow-x-auto rounded-card border border-border">
+            <table className="w-full text-sm bg-surface-1">
               <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Patient</th>
-                  <th>Amount</th>
-                  <th>Approved</th>
-                  <th>Status</th>
-                  <th>Flags</th>
-                  <th></th>
+                <tr className="text-xs text-ink-muted text-left">
+                  <th className="px-3 py-2 font-medium">#</th>
+                  <th className="px-3 py-2 font-medium">Patient</th>
+                  <th className="px-3 py-2 font-medium">Amount</th>
+                  <th className="px-3 py-2 font-medium">Approved</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                  <th className="px-3 py-2 font-medium">Flags</th>
+                  <th className="px-3 py-2"></th>
                 </tr>
               </thead>
               <tbody>
                 {filteredCards.map(c => (
-                  <tr key={c.id}>
-                    <td>{c.id + 1}</td>
-                    <td>{mapping.patient_name ? c.row[mapping.patient_name] : '—'}</td>
-                    <td>{originalAmount(c)?.toLocaleString() ?? '—'}</td>
-                    <td>{approvedAmount(c)?.toLocaleString() ?? '—'}</td>
-                    <td><span className={`status-pill status-${c.status}`}>{c.status}</span></td>
-                    <td>
-                      {repeatedIds.has(c.id) && <span className="badge badge-warn">Repeat</span>}
-                      {(originalAmount(c) || 0) > 40000 && <span className="badge badge-danger">High value</span>}
+                  <tr key={c.id} className="border-t border-border">
+                    <td className="px-3 py-2">{c.id + 1}</td>
+                    <td className="px-3 py-2">{mapping.patient_name ? c.row[mapping.patient_name] : '—'}</td>
+                    <td className="px-3 py-2">{originalAmount(c)?.toLocaleString() ?? '—'}</td>
+                    <td className="px-3 py-2">{approvedAmount(c)?.toLocaleString() ?? '—'}</td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`text-xs capitalize px-2 py-0.5 rounded-full ${
+                          c.status === 'verified'
+                            ? 'bg-brand-light text-brand-dark'
+                            : c.status === 'rejected'
+                            ? 'bg-danger-light text-danger-dark'
+                            : 'bg-warn-light text-warn-dark'
+                        }`}
+                      >
+                        {c.status}
+                      </span>
                     </td>
-                    <td>
-                      <button className="ghost small" onClick={() => { setCurrentIndex(cards.findIndex(x => x.id === c.id)); setStage('verify') }}>Open</button>
+                    <td className="px-3 py-2 space-x-1">
+                      {repeatedIds.has(c.id) && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-warn-light text-warn-dark">Repeat</span>
+                      )}
+                      {(originalAmount(c) || 0) > 40000 && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-danger-light text-danger-dark">High value</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={() => {
+                          setCurrentIndex(cards.findIndex(x => x.id === c.id))
+                          setStage('verify')
+                        }}
+                        className="text-xs border border-border rounded-lg px-2.5 py-1 hover:bg-surface-2"
+                      >
+                        Open
+                      </button>
                     </td>
                   </tr>
                 ))}
