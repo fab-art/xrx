@@ -85,7 +85,7 @@ export default function App() {
   const persisted = useRef(loadState())
   const initial = persisted.current
 
-  const [stage, setStage] = useState(initial?.stage || 'upload')
+  const [stage, setStage] = useState(initial?.stage || 'landing')
   const [fileName, setFileName] = useState(initial?.fileName || '')
   const [headers, setHeaders] = useState(initial?.headers || [])
   const [mapping, setMapping] = useState(initial?.mapping || {})
@@ -100,7 +100,12 @@ export default function App() {
   const [sortBy, setSortBy] = useState('none')
   const [sortDir, setSortDir] = useState('asc')
   const [counterHeader, setCounterHeader] = useState(
-    initial?.counterHeader || { code: '', pharmacyName: '', period: '', tin: '', preparedBy: '', verifiedBy: '', approvedBy: '' }
+    initial?.counterHeader || {
+      code: '', pharmacyName: '', period: '', tin: '',
+      preparedBy: '', preparedByPosition: '',
+      verifiedBy: '', verifiedByPosition: '',
+      approvedBy: '', approvedByPosition: ''
+    }
   )
   const [lastSaved, setLastSaved] = useState(null)
   const [autoDetected, setAutoDetected] = useState(initial?.autoDetected || 0)
@@ -274,6 +279,11 @@ export default function App() {
     return list
   }, [cards, statusFilter, advFilter, classificationFilter, dateFrom, dateTo, sortBy, sortDir, search, repeatedIds, mapping])
 
+  const filteredTotalAmount = useMemo(
+    () => filteredCards.reduce((s, c) => s + (originalAmount(c) || 0), 0),
+    [filteredCards, mapping]
+  )
+
   const summary = useMemo(() => {
     const total = cards.length
     const verified = cards.filter(c => c.status === 'verified').length
@@ -352,7 +362,7 @@ export default function App() {
     // Flexible column set: mirrors whatever columns actually exist in the uploaded file,
     // plus the deduction/observation columns this app adds during review.
     const sourceColumns = headers.length ? headers : (cards[0] ? Object.keys(cards[0].row) : [])
-    const dynamicColumns = ['#', ...sourceColumns, 'Amount Deducted', 'Observation']
+    const dynamicColumns = ['#', 'Prescription Date (Verified)', ...sourceColumns, 'Amount Deducted', 'Observation']
     const deductedColIdx = dynamicColumns.length - 2
     const observationColIdx = dynamicColumns.length - 1
 
@@ -373,13 +383,14 @@ export default function App() {
         seq += 1
         const deducted = parseFloat(c.deduction) || 0
         facilityTotal += deducted
+        const verifiedDate = c.prescriptionDate || mappedValue(c, 'visit_date') || ''
         const sourceValues = sourceColumns.map(h => c.row[h] ?? '')
-        aoa.push([seq, ...sourceValues, deducted, c.comment || findRowValue(c, ['observation']) || 'Not Found'])
+        aoa.push([seq, verifiedDate, ...sourceValues, deducted, c.comment || findRowValue(c, ['observation']) || 'Not Found'])
         styleRows.push('data')
       })
 
       const totalRow = new Array(dynamicColumns.length).fill('')
-      totalRow[1] = 'TOTAL'
+      totalRow[2] = 'TOTAL'
       totalRow[deductedColIdx] = facilityTotal
       aoa.push(totalRow)
       styleRows.push('total')
@@ -460,6 +471,8 @@ export default function App() {
     styleRows.push('blank')
     aoa.push(['Prepared by:', '', 'Verified by', '', 'Approved By'])
     styleRows.push('footer')
+    aoa.push([`Position: ${counterHeader.preparedByPosition || ''}`, '', `Position: ${counterHeader.verifiedByPosition || ''}`, '', `Position: ${counterHeader.approvedByPosition || ''}`])
+    styleRows.push('footer')
     aoa.push(['Date:', '', 'Date:', '', 'Date:'])
     styleRows.push('footer')
     aoa.push(['Signature:', '', 'Signature:', '', 'Signature:'])
@@ -519,14 +532,14 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [stage, currentCard, cards.length])
 
-  const showShell = stage !== 'upload' && cards.length > 0
+  const showShell = stage !== 'upload' && stage !== 'landing' && cards.length > 0
 
   return (
     <div className={showShell ? 'lg:flex min-h-screen' : ''}>
       {showShell && (
         <aside className="hidden lg:flex flex-col w-60 shrink-0 border-r border-border bg-surface-1 p-4 gap-1 sticky top-0 h-screen">
           <div className="flex items-center gap-2 mb-1">
-            <img src="/logo.svg" alt="RSSB" className="w-9 h-9 shrink-0" />
+            <img src="/logo.png" alt="RSSB" className="w-9 h-9 shrink-0" />
             <h1 className="text-sm font-semibold tracking-tight leading-tight">RSSB Counter<br/>Verification System</h1>
           </div>
           <p className="text-xs text-ink-muted mb-4">Claims verification &amp; fraud review</p>
@@ -558,11 +571,49 @@ export default function App() {
       )}
 
       <div className="flex-1 min-w-0">
-        {!showShell && (
+        {stage === 'landing' && (
+          <div className="min-h-screen flex flex-col">
+            <div className="flex justify-end px-4 sm:px-6 lg:px-8 pt-5">
+              <button onClick={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))} className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface-1 hover:bg-surface-2 shrink-0">
+                {theme === 'light' ? '☀️ Light' : '🌙 Dark'}
+              </button>
+            </div>
+            <div className="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8">
+              <div className="max-w-xl w-full text-center py-16">
+                <img src="/logo.png" alt="RSSB" className="w-24 h-24 mx-auto mb-6" />
+                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight mb-2">RSSB Counter Verification System</h1>
+                <p className="text-sm sm:text-base text-ink-muted mb-10">
+                  Prepare, verify, and audit pharmacy voucher claims — map columns, review vouchers, flag fraud,
+                  and generate Anti Fraud and Counter Verification reports.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-10 text-left">
+                  {[
+                    ['Map columns', 'Auto-detect fields from any RSSB export format.'],
+                    ['Verify & flag', 'Review each voucher and flag fraud or compliance issues.'],
+                    ['Export reports', 'Generate Anti Fraud and Counter Verification Excel reports.']
+                  ].map(([title, desc]) => (
+                    <div key={title} className="rounded-card border border-border bg-surface-1 p-4">
+                      <div className="text-sm font-medium mb-1">{title}</div>
+                      <div className="text-xs text-ink-muted">{desc}</div>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setStage('upload')}
+                  className="bg-brand text-white text-sm font-medium rounded-lg px-6 py-2.5 hover:bg-brand-dark transition-colors"
+                >
+                  Get started
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!showShell && stage === 'upload' && (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
             <header className="mb-6 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <img src="/logo.svg" alt="RSSB" className="w-11 h-11 shrink-0" />
+                <img src="/logo.png" alt="RSSB" className="w-11 h-11 shrink-0" />
                 <div>
                   <h1 className="text-xl font-medium tracking-tight">RSSB Counter Verification System</h1>
                   <p className="text-sm text-ink-muted mt-0.5">Data preparation and verification dashboard</p>
@@ -587,7 +638,7 @@ export default function App() {
           <>
             <div className="lg:hidden flex items-center justify-between gap-2 border-b border-border bg-surface-1 px-4 py-3 sticky top-0 z-20">
               <span className="font-medium flex items-center gap-2 min-w-0">
-                <img src="/logo.svg" alt="RSSB" className="w-6 h-6 shrink-0" />
+                <img src="/logo.png" alt="RSSB" className="w-6 h-6 shrink-0" />
                 <span className="truncate">RSSB Counter Verification</span>
               </span>
               <div className="flex items-center gap-1.5 shrink-0">
@@ -875,6 +926,13 @@ export default function App() {
                     <button onClick={exportResults} className="ml-auto text-sm rounded-lg px-3.5 py-1.5 bg-brand text-white hover:bg-brand-dark transition-colors">Export</button>
                   </div>
 
+                  <div className="flex flex-wrap items-center gap-3 mb-3 text-sm">
+                    <span className="rounded-lg bg-brand-light text-brand-dark px-3 py-1.5 font-medium">
+                      {filteredCards.length} voucher{filteredCards.length === 1 ? '' : 's'} in this view
+                    </span>
+                    <span className="text-ink-muted">Total amount: <span className="text-ink font-medium">{filteredTotalAmount.toLocaleString()}</span></span>
+                  </div>
+
                   <div className="overflow-x-auto rounded-card border border-border">
                     <table className="w-full text-sm bg-surface-1">
                       <thead>
@@ -1001,16 +1059,23 @@ export default function App() {
                     ))}
                   </div>
 
-                  <div className="rounded-card border border-border bg-surface-1 p-4 mb-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="rounded-card border border-border bg-surface-1 p-4 mb-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
                     {[
-                      ['preparedBy', 'Prepared by'],
-                      ['verifiedBy', 'Verified by'],
-                      ['approvedBy', 'Approved by']
-                    ].map(([key, label]) => (
-                      <div key={key}>
-                        <label className="text-xs text-ink-muted block mb-1">{label}</label>
-                        <input value={counterHeader[key]} onChange={e => setCounterHeader(h => ({ ...h, [key]: e.target.value }))}
-                          className="w-full border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2" placeholder="Full name" />
+                      ['preparedBy', 'preparedByPosition', 'Prepared by'],
+                      ['verifiedBy', 'verifiedByPosition', 'Verified by'],
+                      ['approvedBy', 'approvedByPosition', 'Approved by']
+                    ].map(([key, posKey, label]) => (
+                      <div key={key} className="flex flex-col gap-2">
+                        <div>
+                          <label className="text-xs text-ink-muted block mb-1">{label}</label>
+                          <input value={counterHeader[key]} onChange={e => setCounterHeader(h => ({ ...h, [key]: e.target.value }))}
+                            className="w-full border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2" placeholder="Full name" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-ink-muted block mb-1">Position / title</label>
+                          <input value={counterHeader[posKey]} onChange={e => setCounterHeader(h => ({ ...h, [posKey]: e.target.value }))}
+                            className="w-full border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2" placeholder="e.g. Pharmacist in Charge" />
+                        </div>
                       </div>
                     ))}
                   </div>
