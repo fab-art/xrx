@@ -7,12 +7,12 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['logo.png'],
       manifest: {
-        name: 'Verify — Claims Verification & Fraud Review',
-        short_name: 'Verify',
+        name: 'RSSB Counter Verification System',
+        short_name: 'RSSB Verify',
         description: 'Prepare, verify, and audit pharmacy voucher claims. Map columns, review vouchers, flag fraud, and export Anti Fraud and Counter Verification reports.',
-        theme_color: '#0f6e56',
+        theme_color: '#1e3a8a',
         background_color: '#f6f5f1',
         display: 'standalone',
         display_override: ['window-controls-overlay', 'standalone'],
