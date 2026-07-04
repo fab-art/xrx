@@ -4,13 +4,28 @@ import * as XLSX from 'xlsx'
 const STORAGE_KEY = 'verify-app-state-v1'
 
 const FIELD_DEFS = [
+  { key: 'voucher_no', label: 'Voucher / paper code', guesses: ['papercode', 'voucher', 'claimno', 'code'] },
   { key: 'patient_name', label: 'Patient name', guesses: ['patient', 'name', 'beneficiary'] },
   { key: 'amount', label: 'Amount', guesses: ['amount', 'total', 'cost', 'claim', 'value', 'price'] },
-  { key: 'visit_date', label: 'Visit date', guesses: ['date', 'visit'] },
+  { key: 'visit_date', label: 'Visit / prescription date', guesses: ['prescriptiondate', 'date', 'visit'] },
   { key: 'doctor_name', label: 'Doctor / prescriber', guesses: ['doctor', 'practitioner', 'prescriber'] },
   { key: 'facility_name', label: 'Facility', guesses: ['facility', 'pharmacy', 'hospital'] },
   { key: 'rama_number', label: 'RAMA / insurance number', guesses: ['rama', 'rssb', 'insurance'] }
 ]
+
+const CLASSIFICATIONS = [
+  { key: 'unclassified', label: 'Not classified' },
+  { key: 'pharma_compliance', label: 'Pharmacological compliance' },
+  { key: 'rssb_compliance', label: 'RSSB rules compliance' },
+  { key: 'fraud', label: 'Fraud activity' }
+]
+
+function toDateValue(v) {
+  if (!v) return null
+  if (v instanceof Date) return v
+  const d = new Date(v)
+  return isNaN(d.getTime()) ? null : d
+}
 
 function guessKey(headers, candidates) {
   return headers.find(h => candidates.some(c => h.toLowerCase().replace(/[\s_]/g, '').includes(c))) || ''
@@ -52,6 +67,11 @@ export default function App() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [advFilter, setAdvFilter] = useState('none') // none | repeated | over40000
+  const [classificationFilter, setClassificationFilter] = useState('all')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [sortBy, setSortBy] = useState('none') // none | facility | doctor | voucher | date | amount
+  const [sortDir, setSortDir] = useState('asc')
   const [lastSaved, setLastSaved] = useState(null)
 
   useEffect(() => {
@@ -82,7 +102,8 @@ export default function App() {
           comment: '',
           deduction: 0,
           prescriptionDate: '',
-          facilityOverride: ''
+          facilityOverride: '',
+          classification: 'unclassified'
         }))
       )
       setCurrentIndex(0)
@@ -115,6 +136,28 @@ export default function App() {
     setCards(cs => cs.map(c => (c.id === id ? { ...c, ...patch } : c)))
   }
 
+  function facilityOf(card) {
+    const override = (card.facilityOverride || '').trim()
+    if (override) return override
+    return mapping.facility_name ? String(card.row[mapping.facility_name] || '').trim() : ''
+  }
+
+  function doctorOf(card) {
+    return mapping.doctor_name ? String(card.row[mapping.doctor_name] || '').trim() : ''
+  }
+
+  function voucherOf(card) {
+    return mapping.voucher_no ? String(card.row[mapping.voucher_no] || '').trim() : ''
+  }
+
+  function dateOf(card) {
+    return mapping.visit_date ? toDateValue(card.row[mapping.visit_date]) : null
+  }
+
+  function needsFraudReview(card) {
+    return card.classification === 'fraud' && (!card.prescriptionDate || !facilityOf(card))
+  }
+
   // repeated patient detection
   const repeatedIds = useMemo(() => {
     const nameHeader = mapping.patient_name
@@ -138,14 +181,43 @@ export default function App() {
     if (statusFilter !== 'all') list = list.filter(c => c.status === statusFilter)
     if (advFilter === 'repeated') list = list.filter(c => repeatedIds.has(c.id))
     if (advFilter === 'over40000') list = list.filter(c => (originalAmount(c) || 0) > 40000)
+    if (classificationFilter !== 'all') list = list.filter(c => (c.classification || 'unclassified') === classificationFilter)
+    if (dateFrom) {
+      const from = new Date(dateFrom)
+      list = list.filter(c => {
+        const d = dateOf(c)
+        return d && d >= from
+      })
+    }
+    if (dateTo) {
+      const to = new Date(dateTo)
+      to.setHours(23, 59, 59, 999)
+      list = list.filter(c => {
+        const d = dateOf(c)
+        return d && d <= to
+      })
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter(c =>
         Object.values(c.row).some(v => String(v).toLowerCase().includes(q))
       )
     }
+    if (sortBy !== 'none') {
+      const dir = sortDir === 'asc' ? 1 : -1
+      list = [...list].sort((a, b) => {
+        let av, bv
+        if (sortBy === 'facility') { av = facilityOf(a); bv = facilityOf(b) }
+        else if (sortBy === 'doctor') { av = doctorOf(a); bv = doctorOf(b) }
+        else if (sortBy === 'voucher') { av = voucherOf(a); bv = voucherOf(b) }
+        else if (sortBy === 'date') { av = dateOf(a)?.getTime() || 0; bv = dateOf(b)?.getTime() || 0 }
+        else if (sortBy === 'amount') { av = originalAmount(a) || 0; bv = originalAmount(b) || 0 }
+        if (typeof av === 'string') return av.localeCompare(bv) * dir
+        return (av - bv) * dir
+      })
+    }
     return list
-  }, [cards, statusFilter, advFilter, search, repeatedIds, mapping])
+  }, [cards, statusFilter, advFilter, classificationFilter, dateFrom, dateTo, sortBy, sortDir, search, repeatedIds, mapping])
 
   const summary = useMemo(() => {
     const total = cards.length
@@ -165,6 +237,7 @@ export default function App() {
       comment: c.comment,
       prescription_date: c.prescriptionDate,
       facility_override: c.facilityOverride,
+      deduction_classification: CLASSIFICATIONS.find(cl => cl.key === (c.classification || 'unclassified'))?.label,
       deduction: c.deduction || 0,
       approved_amount: approvedAmount(c)
     }))
@@ -172,6 +245,75 @@ export default function App() {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Verified')
     XLSX.writeFile(wb, `verified_${fileName || 'export'}.xlsx`)
+  }
+
+  function generateFraudReport() {
+    const fraudCards = cards.filter(c => c.classification === 'fraud')
+    if (fraudCards.length === 0) {
+      alert('No vouchers are classified as fraud activity yet.')
+      return
+    }
+    const incomplete = fraudCards.filter(needsFraudReview)
+    if (incomplete.length > 0) {
+      const proceed = confirm(
+        `${incomplete.length} fraud voucher(s) are missing prescription date and/or health facility. ` +
+        `They will be excluded from the report until completed in the Verify tab. Continue anyway?`
+      )
+      if (!proceed) return
+    }
+    const complete = fraudCards.filter(c => !needsFraudReview(c))
+
+    const byFacility = {}
+    complete.forEach(c => {
+      const facility = facilityOf(c) || 'Unknown facility'
+      if (!byFacility[facility]) byFacility[facility] = []
+      byFacility[facility].push(c)
+    })
+
+    const detailRows = []
+    const summaryRows = []
+    Object.keys(byFacility).sort().forEach(facility => {
+      const group = byFacility[facility]
+      let facilityTotal = 0
+      group.forEach(c => {
+        const amt = originalAmount(c) || 0
+        facilityTotal += amt
+        detailRows.push({
+          'Health Facility': facility,
+          'Voucher No': voucherOf(c),
+          'Patient Name': mapping.patient_name ? c.row[mapping.patient_name] : '',
+          'Doctor': doctorOf(c),
+          'Prescription Date': c.prescriptionDate,
+          'Claim Amount': amt,
+          'Deduction': c.deduction || 0,
+          'Approved Amount': approvedAmount(c),
+          'Comment': c.comment
+        })
+      })
+      detailRows.push({
+        'Health Facility': `TOTAL — ${facility}`,
+        'Voucher No': '',
+        'Patient Name': '',
+        'Doctor': '',
+        'Prescription Date': '',
+        'Claim Amount': facilityTotal,
+        'Deduction': '',
+        'Approved Amount': '',
+        'Comment': ''
+      })
+      summaryRows.push({
+        'Health Facility': facility,
+        'Fraud Vouchers': group.length,
+        'Total Claim Amount': facilityTotal
+      })
+    })
+
+    const wb = XLSX.utils.book_new()
+    const summaryWs = XLSX.utils.json_to_sheet(summaryRows)
+    XLSX.utils.book_append_sheet(wb, summaryWs, 'Facility Summary')
+    const detailWs = XLSX.utils.json_to_sheet(detailRows)
+    XLSX.utils.book_append_sheet(wb, detailWs, 'Fraud Vouchers')
+    XLSX.writeFile(wb, `fraud_report_${fileName || 'export'}.xlsx`)
   }
 
   function reset() {
@@ -323,6 +465,20 @@ export default function App() {
               ))}
             </div>
 
+            <div className="flex items-center justify-between gap-3 py-1">
+              <label htmlFor="classification" className="text-sm text-ink-muted shrink-0">Deduction classification</label>
+              <select
+                id="classification"
+                value={currentCard.classification || 'unclassified'}
+                onChange={e => updateCard(currentCard.id, { classification: e.target.value })}
+                className="flex-1 max-w-[220px] border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2"
+              >
+                {CLASSIFICATIONS.map(c => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="flex flex-col gap-2.5 py-3 border-b border-border">
               <div className="flex items-center justify-between gap-3">
                 <label htmlFor="prescription-date" className="text-sm text-ink-muted shrink-0">Prescription date</label>
@@ -331,7 +487,9 @@ export default function App() {
                   type="date"
                   value={currentCard.prescriptionDate}
                   onChange={e => updateCard(currentCard.id, { prescriptionDate: e.target.value })}
-                  className="flex-1 border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2 text-right"
+                  className={`flex-1 border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2 text-right ${
+                    needsFraudReview(currentCard) && !currentCard.prescriptionDate ? 'border-danger' : 'border-border'
+                  }`}
                 />
               </div>
               <div className="flex items-center justify-between gap-3">
@@ -342,10 +500,29 @@ export default function App() {
                   placeholder={mapping.facility_name ? String(currentCard.row[mapping.facility_name] || '') : 'Enter facility name'}
                   value={currentCard.facilityOverride}
                   onChange={e => updateCard(currentCard.id, { facilityOverride: e.target.value })}
-                  className="flex-1 border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2 text-right"
+                  className={`flex-1 border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2 text-right ${
+                    needsFraudReview(currentCard) && !facilityOf(currentCard) ? 'border-danger' : 'border-border'
+                  }`}
                 />
               </div>
             </div>
+
+            {currentCard.classification === 'fraud' && (
+              <div className={`rounded-lg border p-3 flex flex-col gap-2 ${needsFraudReview(currentCard) ? 'border-danger bg-danger-light' : 'border-brand bg-brand-light'}`}>
+                <span className={`text-xs font-medium ${needsFraudReview(currentCard) ? 'text-danger-dark' : 'text-brand-dark'}`}>
+                  Fraud review
+                </span>
+                {needsFraudReview(currentCard) ? (
+                  <p className="text-xs text-danger-dark">
+                    Prescription date and health facility are mandatory for fraud-flagged vouchers before this record can be included in the fraud report.
+                  </p>
+                ) : (
+                  <p className="text-xs text-brand-dark">
+                    Review complete — this voucher is ready to appear in the fraud report.
+                  </p>
+                )}
+              </div>
+            )}
 
             {mapping.amount && (
               <div className="flex flex-col gap-1.5 text-sm">
@@ -492,6 +669,61 @@ export default function App() {
                 </button>
               ))}
             </div>
+            <select
+              value={classificationFilter}
+              onChange={e => setClassificationFilter(e.target.value)}
+              aria-label="Filter by deduction category"
+              className="text-xs border border-border rounded-lg px-2.5 py-1.5 bg-surface-1"
+            >
+              <option value="all">All deduction categories</option>
+              {CLASSIFICATIONS.map(c => (
+                <option key={c.key} value={c.key}>{c.label}</option>
+              ))}
+            </select>
+            <div className="flex items-center gap-1">
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={e => setDateFrom(e.target.value)}
+                aria-label="Date from"
+                className="text-xs border border-border rounded-lg px-2 py-1.5 bg-surface-1"
+              />
+              <span className="text-xs text-ink-muted">to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={e => setDateTo(e.target.value)}
+                aria-label="Date to"
+                className="text-xs border border-border rounded-lg px-2 py-1.5 bg-surface-1"
+              />
+            </div>
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+              aria-label="Sort by"
+              className="text-xs border border-border rounded-lg px-2.5 py-1.5 bg-surface-1"
+            >
+              <option value="none">Sort: none</option>
+              <option value="facility">Sort by facility</option>
+              <option value="doctor">Sort by doctor</option>
+              <option value="voucher">Sort by voucher no</option>
+              <option value="date">Sort by date</option>
+              <option value="amount">Sort by claim amount</option>
+            </select>
+            <button
+              onClick={() => setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))}
+              disabled={sortBy === 'none'}
+              aria-label="Toggle sort direction"
+              className="text-xs border border-border rounded-lg px-2.5 py-1.5 bg-surface-1 hover:bg-surface-2 disabled:opacity-40"
+            >
+              {sortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
+            </button>
+            <button
+              onClick={generateFraudReport}
+              className="text-sm rounded-lg px-3.5 py-1.5 bg-danger text-white hover:bg-danger-dark transition-colors"
+            >
+              Fraud report
+            </button>
             <button
               onClick={exportResults}
               className="ml-auto text-sm rounded-lg px-3.5 py-1.5 bg-brand text-white hover:bg-brand-dark transition-colors"
@@ -505,6 +737,7 @@ export default function App() {
               <thead>
                 <tr className="text-xs text-ink-muted text-left">
                   <th className="px-3 py-2 font-medium">#</th>
+                  <th className="px-3 py-2 font-medium">Voucher No</th>
                   <th className="px-3 py-2 font-medium">Patient</th>
                   <th className="px-3 py-2 font-medium">Amount</th>
                   <th className="px-3 py-2 font-medium">Approved</th>
@@ -517,6 +750,7 @@ export default function App() {
                 {filteredCards.map(c => (
                   <tr key={c.id} className="border-t border-border">
                     <td className="px-3 py-2">{c.id + 1}</td>
+                    <td className="px-3 py-2">{voucherOf(c) || '—'}</td>
                     <td className="px-3 py-2">{mapping.patient_name ? c.row[mapping.patient_name] : '—'}</td>
                     <td className="px-3 py-2">{originalAmount(c)?.toLocaleString() ?? '—'}</td>
                     <td className="px-3 py-2">{approvedAmount(c)?.toLocaleString() ?? '—'}</td>
@@ -539,6 +773,14 @@ export default function App() {
                       )}
                       {(originalAmount(c) || 0) > 40000 && (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-danger-light text-danger-dark">High value</span>
+                      )}
+                      {c.classification && c.classification !== 'unclassified' && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-surface-2 border border-border">
+                          {CLASSIFICATIONS.find(cl => cl.key === c.classification)?.label}
+                        </span>
+                      )}
+                      {needsFraudReview(c) && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-danger-light text-danger-dark">Needs review</span>
                       )}
                     </td>
                     <td className="px-3 py-2">
