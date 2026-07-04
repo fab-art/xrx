@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import * as XLSX from 'xlsx'
+import * as XLSX from 'xlsx-js-style'
 
 const STORAGE_KEY = 'verify-app-state-v1'
 
@@ -26,6 +26,40 @@ function toDateValue(v) {
   const d = new Date(v)
   return isNaN(d.getTime()) ? null : d
 }
+
+function normalizeKey(s) {
+  return String(s).toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function findRowValue(card, candidates) {
+  const keys = Object.keys(card.row || {})
+  for (const k of keys) {
+    const nk = normalizeKey(k)
+    if (candidates.some(c => nk.includes(c))) return card.row[k]
+  }
+  return undefined
+}
+
+// Mirrors the exact column layout of the Neza Anti Fraud Report source file
+const ANTI_FRAUD_COLUMNS = [
+  { header: '#', width: 5 },
+  { header: 'Paper Code', width: 21.57 },
+  { header: 'Prescription Date ', width: 19 },
+  { header: 'Dispensing Date', width: 17.43 },
+  { header: 'Patient Name', width: 16.86 },
+  { header: 'RAMA Number', width: 14.57 },
+  { header: 'Is Newborn', width: 14.29 },
+  { header: 'Gender', width: 7.57 },
+  { header: 'Patient Type', width: 21 },
+  { header: 'Practitioner Name', width: 33.43 },
+  { header: 'Practitioner Type', width: 10.43 },
+  { header: 'Health Facility', width: 16.14 },
+  { header: 'Total Cost', width: 25.29 },
+  { header: 'Insurance  Co-payment', width: 20.71 },
+  { header: 'Medicine Cost', width: 25.29 },
+  { header: 'Amount deducted', width: 18.29 },
+  { header: 'Observation', width: 50 }
+]
 
 function guessKey(headers, candidates) {
   return headers.find(h => candidates.some(c => h.toLowerCase().replace(/[\s_]/g, '').includes(c))) || ''
@@ -72,12 +106,15 @@ export default function App() {
   const [dateTo, setDateTo] = useState('')
   const [sortBy, setSortBy] = useState('none') // none | facility | doctor | voucher | date | amount
   const [sortDir, setSortDir] = useState('asc')
+  const [counterHeader, setCounterHeader] = useState(
+    initial?.counterHeader || { code: '', pharmacyName: '', period: '', tin: '' }
+  )
   const [lastSaved, setLastSaved] = useState(null)
 
   useEffect(() => {
-    saveState({ stage, fileName, headers, mapping, cards, currentIndex })
+    saveState({ stage, fileName, headers, mapping, cards, currentIndex, counterHeader })
     setLastSaved(new Date())
-  }, [stage, fileName, headers, mapping, cards, currentIndex])
+  }, [stage, fileName, headers, mapping, cards, currentIndex, counterHeader])
 
   function handleFile(e) {
     const file = e.target.files[0]
@@ -103,7 +140,8 @@ export default function App() {
           deduction: 0,
           prescriptionDate: '',
           facilityOverride: '',
-          classification: 'unclassified'
+          classification: 'unclassified',
+          explanation: ''
         }))
       )
       setCurrentIndex(0)
@@ -270,50 +308,137 @@ export default function App() {
       byFacility[facility].push(c)
     })
 
-    const detailRows = []
-    const summaryRows = []
+    const boldCambria = { font: { name: 'Cambria', sz: 11, bold: true } }
+    const timesRegular = { font: { name: 'Times New Roman', sz: 12 } }
+    const timesHighlighted = { font: { name: 'Times New Roman', sz: 12 }, fill: { fgColor: { rgb: 'FFFFFF00' }, patternType: 'solid' } }
+    const timesBold = { font: { name: 'Times New Roman', sz: 12, bold: true } }
+    const facilityLabel = { font: { name: 'Times New Roman', sz: 12, bold: false } }
+
+    const aoa = []
+    const styleRows = [] // parallel array: 'facility' | 'header' | 'data' | 'total' | 'blank'
+    let seq = 0
+    const facilitySummary = []
+
     Object.keys(byFacility).sort().forEach(facility => {
       const group = byFacility[facility]
+      aoa.push(['', facility])
+      styleRows.push('facility')
+      aoa.push(ANTI_FRAUD_COLUMNS.map(c => c.header))
+      styleRows.push('header')
+
       let facilityTotal = 0
       group.forEach(c => {
-        const amt = originalAmount(c) || 0
-        facilityTotal += amt
-        detailRows.push({
-          'Health Facility': facility,
-          'Voucher No': voucherOf(c),
-          'Patient Name': mapping.patient_name ? c.row[mapping.patient_name] : '',
-          'Doctor': doctorOf(c),
-          'Prescription Date': c.prescriptionDate,
-          'Claim Amount': amt,
-          'Deduction': c.deduction || 0,
-          'Approved Amount': approvedAmount(c),
-          'Comment': c.comment
-        })
+        seq += 1
+        const deducted = parseFloat(c.deduction) || 0
+        facilityTotal += deducted
+        const rowValues = [
+          seq,
+          findRowValue(c, ['papercode', 'voucher', 'code']) ?? voucherOf(c),
+          c.prescriptionDate || findRowValue(c, ['prescriptiondate']) || '',
+          findRowValue(c, ['dispensingdate', 'dispatchdate']) ?? '',
+          mapping.patient_name ? c.row[mapping.patient_name] : (findRowValue(c, ['patientname', 'beneficiary']) ?? ''),
+          mapping.rama_number ? c.row[mapping.rama_number] : (findRowValue(c, ['ramanumber']) ?? ''),
+          findRowValue(c, ['isnewborn', 'newborn']) ?? '',
+          findRowValue(c, ['gender', 'sex']) ?? '',
+          findRowValue(c, ['patienttype']) ?? '',
+          doctorOf(c) || findRowValue(c, ['practitionername']) || '',
+          findRowValue(c, ['practitionertype']) ?? '',
+          facility,
+          findRowValue(c, ['totalcost']) ?? originalAmount(c) ?? '',
+          findRowValue(c, ['insuranceco', 'copayment']) ?? '',
+          findRowValue(c, ['medicinecost']) ?? '',
+          deducted,
+          c.comment || findRowValue(c, ['observation']) || 'Not Found'
+        ]
+        aoa.push(rowValues)
+        styleRows.push('data')
       })
-      detailRows.push({
-        'Health Facility': `TOTAL — ${facility}`,
-        'Voucher No': '',
-        'Patient Name': '',
-        'Doctor': '',
-        'Prescription Date': '',
-        'Claim Amount': facilityTotal,
-        'Deduction': '',
-        'Approved Amount': '',
-        'Comment': ''
-      })
-      summaryRows.push({
-        'Health Facility': facility,
-        'Fraud Vouchers': group.length,
-        'Total Claim Amount': facilityTotal
+
+      const totalRow = new Array(ANTI_FRAUD_COLUMNS.length).fill('')
+      totalRow[1] = 'TOTAL'
+      totalRow[15] = facilityTotal
+      aoa.push(totalRow)
+      styleRows.push('total')
+
+      aoa.push([])
+      styleRows.push('blank')
+
+      facilitySummary.push({ 'Health Facility': facility, 'Fraud Vouchers': group.length, 'Total Amount Deducted': facilityTotal })
+    })
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    ws['!cols'] = ANTI_FRAUD_COLUMNS.map(c => ({ wch: c.width }))
+
+    aoa.forEach((row, r) => {
+      const kind = styleRows[r]
+      row.forEach((_, ci) => {
+        const addr = XLSX.utils.encode_cell({ r, c: ci })
+        if (!ws[addr]) return
+        if (kind === 'facility') ws[addr].s = facilityLabel
+        else if (kind === 'header') ws[addr].s = boldCambria
+        else if (kind === 'data') ws[addr].s = timesHighlighted
+        else if (kind === 'total') ws[addr].s = timesBold
       })
     })
 
     const wb = XLSX.utils.book_new()
-    const summaryWs = XLSX.utils.json_to_sheet(summaryRows)
+    XLSX.utils.book_append_sheet(wb, ws, 'Anti Fraud Report')
+    const summaryWs = XLSX.utils.json_to_sheet(facilitySummary)
     XLSX.utils.book_append_sheet(wb, summaryWs, 'Facility Summary')
-    const detailWs = XLSX.utils.json_to_sheet(detailRows)
-    XLSX.utils.book_append_sheet(wb, detailWs, 'Fraud Vouchers')
     XLSX.writeFile(wb, `fraud_report_${fileName || 'export'}.xlsx`)
+  }
+
+  function generateCounterReport() {
+    const deducted = cards.filter(c => (parseFloat(c.deduction) || 0) > 0)
+    if (deducted.length === 0) {
+      alert('No vouchers currently have a deduction to include in the counter verification report.')
+      return
+    }
+
+    const titleStyle = { font: { name: 'Arial', sz: 10, bold: true } }
+    const centerTitleStyle = { font: { name: 'Arial', sz: 10, bold: true }, alignment: { horizontal: 'left' } }
+    const tableHeaderStyle = { font: { name: 'Calibri', sz: 12, bold: true }, alignment: { horizontal: 'center' } }
+    const dataStyle = { font: { name: 'Arial', sz: 11 }, alignment: { horizontal: 'left' } }
+
+    const aoa = [
+      [counterHeader.code ? `CODE/PHARMACY: ${counterHeader.code}` : 'CODE/PHARMACY:'],
+      [counterHeader.pharmacyName || ''],
+      ['', '', counterHeader.period ? `PERIOD: ${counterHeader.period}` : 'PERIOD:'],
+      [counterHeader.tin ? `TIN: ${counterHeader.tin}` : 'TIN:'],
+      [],
+      ['', '', 'COUNTER VERIFICATION REPORT'],
+      [],
+      ['NO', 'N° BEN.', 'Difference', 'Explanation of deduction']
+    ]
+    const styleRows = ['title', 'title', 'title', 'title', 'blank', 'title', 'blank', 'header']
+
+    deducted.forEach((c, i) => {
+      aoa.push([
+        i + 1,
+        findRowValue(c, ['papercode', 'voucher', 'code']) ?? voucherOf(c) ?? (mapping.rama_number ? c.row[mapping.rama_number] : ''),
+        -(parseFloat(c.deduction) || 0),
+        c.explanation || c.comment || ''
+      ])
+      styleRows.push('data')
+    })
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    ws['!cols'] = [{ wch: 16 }, { wch: 21.88 }, { wch: 15.13 }, { wch: 25 }, { wch: 32.38 }]
+
+    aoa.forEach((row, r) => {
+      const kind = styleRows[r]
+      row.forEach((_, ci) => {
+        const addr = XLSX.utils.encode_cell({ r, c: ci })
+        if (!ws[addr]) return
+        if (kind === 'title') ws[addr].s = ci === 2 ? centerTitleStyle : titleStyle
+        else if (kind === 'header') ws[addr].s = tableHeaderStyle
+        else if (kind === 'data') ws[addr].s = dataStyle
+      })
+    })
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Counter verification report')
+    XLSX.writeFile(wb, `counter_verification_${fileName || 'export'}.xlsx`)
   }
 
   function reset() {
@@ -361,7 +486,8 @@ export default function App() {
           {[
             ['map', '1. Map columns'],
             ['verify', '2. Verify'],
-            ['dashboard', '3. Dashboard']
+            ['dashboard', '3. Dashboard'],
+            ['counter', '4. Counter verification']
           ].map(([key, label]) => (
             <button
               key={key}
@@ -799,6 +925,104 @@ export default function App() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {stage === 'counter' && (
+        <div>
+          <p className="text-sm text-ink-muted mb-4">
+            Review every voucher that currently has a deduction, adjust the amount or explanation as a final check,
+            then generate the counter verification report.
+          </p>
+
+          <div className="rounded-card border border-border bg-surface-1 p-4 mb-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-ink-muted block mb-1">Code / Pharmacy</label>
+              <input
+                value={counterHeader.code}
+                onChange={e => setCounterHeader(h => ({ ...h, code: e.target.value }))}
+                className="w-full border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2"
+                placeholder="e.g. 20331037"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-ink-muted block mb-1">Pharmacy / facility name</label>
+              <input
+                value={counterHeader.pharmacyName}
+                onChange={e => setCounterHeader(h => ({ ...h, pharmacyName: e.target.value }))}
+                className="w-full border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2"
+                placeholder="e.g. NYARUGENGE - PHARMACIE NEZA"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-ink-muted block mb-1">Period</label>
+              <input
+                value={counterHeader.period}
+                onChange={e => setCounterHeader(h => ({ ...h, period: e.target.value }))}
+                className="w-full border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2"
+                placeholder="e.g. DECEMBER 2024"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-ink-muted block mb-1">TIN</label>
+              <input
+                value={counterHeader.tin}
+                onChange={e => setCounterHeader(h => ({ ...h, tin: e.target.value }))}
+                className="w-full border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2"
+                placeholder="e.g. 102808467"
+              />
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-card border border-border mb-4">
+            <table className="w-full text-sm bg-surface-1">
+              <thead>
+                <tr className="text-xs text-ink-muted text-left">
+                  <th className="px-3 py-2 font-medium">NO</th>
+                  <th className="px-3 py-2 font-medium">N° BEN. / Voucher</th>
+                  <th className="px-3 py-2 font-medium">Original amount</th>
+                  <th className="px-3 py-2 font-medium">Deduction (adjustable)</th>
+                  <th className="px-3 py-2 font-medium">Difference</th>
+                  <th className="px-3 py-2 font-medium">Explanation of deduction</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cards.filter(c => (parseFloat(c.deduction) || 0) > 0).map((c, i) => (
+                  <tr key={c.id} className="border-t border-border align-top">
+                    <td className="px-3 py-2">{i + 1}</td>
+                    <td className="px-3 py-2">{voucherOf(c) || (mapping.rama_number ? c.row[mapping.rama_number] : '—')}</td>
+                    <td className="px-3 py-2">{originalAmount(c)?.toLocaleString() ?? '—'}</td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="number"
+                        min="0"
+                        value={c.deduction || ''}
+                        onChange={e => updateCard(c.id, { deduction: e.target.value })}
+                        className="w-24 border border-border rounded-lg px-2 py-1 text-sm bg-surface-2 text-right"
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-danger">-{(parseFloat(c.deduction) || 0).toLocaleString()}</td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="text"
+                        value={c.explanation}
+                        placeholder={c.comment || 'e.g. Different reception signature'}
+                        onChange={e => updateCard(c.id, { explanation: e.target.value })}
+                        className="w-full min-w-[220px] border border-border rounded-lg px-2 py-1 text-sm bg-surface-2"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <button
+            onClick={generateCounterReport}
+            className="text-sm rounded-lg px-4 py-2 bg-brand text-white hover:bg-brand-dark transition-colors"
+          >
+            Generate counter verification report
+          </button>
         </div>
       )}
     </div>
