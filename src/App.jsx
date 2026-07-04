@@ -2,22 +2,28 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx-js-style'
 
 const STORAGE_KEY = 'verify-app-state-v2'
+const THEME_KEY = 'verify-app-theme'
+const APP_NAME = 'RSSB Counter Verification System'
 
 const FIELD_DEFS = [
-  { key: 'voucher_no', label: 'Paper Code / Voucher No', guesses: ['papercode', 'voucher', 'claimno', 'code'] },
+  { key: 'voucher_no', label: 'Paper Code / Voucher No', guesses: ['papercode', 'voucheridentification', 'voucher', 'claimno', 'code', 'n0', 'no'] },
   { key: 'visit_date', label: 'Prescription Date', guesses: ['prescriptiondate', 'date', 'visit'] },
   { key: 'dispensing_date', label: 'Dispensing Date', guesses: ['dispensingdate', 'dispatchdate'] },
-  { key: 'patient_name', label: 'Patient Name', guesses: ['patient', 'name', 'beneficiary'] },
-  { key: 'patient_type', label: 'Patient Type', guesses: ['patienttype'] },
-  { key: 'gender', label: 'Gender', guesses: ['gender', 'sex'] },
+  { key: 'patient_name', label: 'Patient Name', guesses: ['beneficiarysnames', 'beneficiaryname', 'patient', 'name', 'beneficiary'] },
+  { key: 'patient_type', label: 'Patient Type', guesses: ['patienttype', 'affiliatesaffectation', 'affectation'] },
+  { key: 'gender', label: 'Gender', guesses: ['gender', 'sex', 'beneficiaryssex'] },
   { key: 'is_newborn', label: 'Is Newborn', guesses: ['isnewborn', 'newborn'] },
-  { key: 'rama_number', label: 'RAMA Number', guesses: ['ramanumber', 'rama', 'rssb'] },
-  { key: 'doctor_name', label: 'Practitioner Name', guesses: ['practitionername', 'doctor', 'practitioner', 'prescriber'] },
-  { key: 'practitioner_type', label: 'Practitioner Type', guesses: ['practitionertype'] },
-  { key: 'facility_name', label: 'Health Facility', guesses: ['facility', 'pharmacy', 'hospital'] },
-  { key: 'amount', label: 'Total Cost', guesses: ['totalcost', 'amount', 'total', 'cost', 'claim', 'value', 'price'] },
+  { key: 'patient_age', label: 'Beneficiary Age / DOB', guesses: ['beneficiarysage', 'age', 'dob'] },
+  { key: 'rama_number', label: 'RAMA / Affiliation Number', guesses: ['ramanumber', 'rama', 'affiliationnumber', 'beneficiaryaffiliationnumber', 'affiliation'] },
+  { key: 'affiliate_name', label: "Affiliate's Name", guesses: ['affiliatesnames', 'affiliatename'] },
+  { key: 'doctor_name', label: 'Practitioner Name', guesses: ['practitionername', 'doctor', 'practitioner', 'prescriber', 'prescribersnames'] },
+  { key: 'practitioner_type', label: 'Practitioner Type', guesses: ['practitionertype', 'om'] },
+  { key: 'facility_name', label: 'Health Facility', guesses: ['healthfacility', 'facility', 'pharmacy', 'hospital'] },
+  { key: 'amount', label: 'Total Cost', guesses: ['totalcost100', 'totalcost', 'amount', 'total', 'cost', 'claim', 'value', 'price'] },
   { key: 'patient_copayment', label: 'Patient Co-payment', guesses: ['patientcopayment', 'patientco'] },
-  { key: 'insurance_copayment', label: 'Insurance Co-payment', guesses: ['insuranceco', 'insurancecopayment'] }
+  { key: 'insurance_copayment', label: 'Insurance / RSSB Co-payment', guesses: ['rssbcost85', 'rssbcost', 'insuranceco', 'insurancecopayment'] },
+  { key: 'difference', label: 'Difference', guesses: ['difference'] },
+  { key: 'observation', label: 'Observation', guesses: ['observation', 'comment', 'remark'] }
 ]
 
 const CLASSIFICATION_DEFS = [
@@ -53,27 +59,6 @@ function findRowValue(card, candidates) {
   }
   return undefined
 }
-
-// Mirrors the exact column layout of the Neza Anti Fraud Report source file
-const ANTI_FRAUD_COLUMNS = [
-  { header: '#', width: 5 },
-  { header: 'Paper Code', width: 21.57 },
-  { header: 'Prescription Date ', width: 19 },
-  { header: 'Dispensing Date', width: 17.43 },
-  { header: 'Patient Name', width: 16.86 },
-  { header: 'RAMA Number', width: 14.57 },
-  { header: 'Is Newborn', width: 14.29 },
-  { header: 'Gender', width: 7.57 },
-  { header: 'Patient Type', width: 21 },
-  { header: 'Practitioner Name', width: 33.43 },
-  { header: 'Practitioner Type', width: 10.43 },
-  { header: 'Health Facility', width: 16.14 },
-  { header: 'Total Cost', width: 25.29 },
-  { header: 'Insurance  Co-payment', width: 20.71 },
-  { header: 'Medicine Cost', width: 25.29 },
-  { header: 'Amount deducted', width: 18.29 },
-  { header: 'Observation', width: 50 }
-]
 
 function loadState() {
   try {
@@ -118,11 +103,20 @@ export default function App() {
     initial?.counterHeader || { code: '', pharmacyName: '', period: '', tin: '', preparedBy: '', verifiedBy: '', approvedBy: '' }
   )
   const [lastSaved, setLastSaved] = useState(null)
+  const [autoDetected, setAutoDetected] = useState(initial?.autoDetected || 0)
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem(THEME_KEY) || 'light' } catch { return 'light' }
+  })
 
   useEffect(() => {
-    saveState({ stage, fileName, headers, mapping, cards, currentIndex, counterHeader })
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    try { localStorage.setItem(THEME_KEY, theme) } catch { /* ignore */ }
+  }, [theme])
+
+  useEffect(() => {
+    saveState({ stage, fileName, headers, mapping, cards, currentIndex, counterHeader, autoDetected })
     setLastSaved(new Date())
-  }, [stage, fileName, headers, mapping, cards, currentIndex, counterHeader])
+  }, [stage, fileName, headers, mapping, cards, currentIndex, counterHeader, autoDetected])
 
   function handleFile(e) {
     const file = e.target.files[0]
@@ -135,9 +129,24 @@ export default function App() {
       const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' })
       const hdrs = json.length ? Object.keys(json[0]) : []
       const guessedMapping = {}
+      const usedHeaders = new Set()
       FIELD_DEFS.forEach(f => {
-        guessedMapping[f.key] = hdrs.find(h => f.guesses.some(g => normalizeKey(h).includes(g))) || ''
+        let best = ''
+        let bestScore = 0
+        hdrs.forEach(h => {
+          if (usedHeaders.has(h)) return
+          const nh = normalizeKey(h)
+          f.guesses.forEach(g => {
+            if (nh.includes(g) && g.length > bestScore) {
+              bestScore = g.length
+              best = h
+            }
+          })
+        })
+        guessedMapping[f.key] = best
+        if (best) usedHeaders.add(best)
       })
+      setAutoDetected(Object.values(guessedMapping).filter(Boolean).length)
       setHeaders(hdrs)
       setMapping(guessedMapping)
       setCards(
@@ -340,6 +349,13 @@ export default function App() {
     const timesBold = { font: { name: 'Times New Roman', sz: 12, bold: true } }
     const facilityLabel = { font: { name: 'Times New Roman', sz: 12, bold: false } }
 
+    // Flexible column set: mirrors whatever columns actually exist in the uploaded file,
+    // plus the deduction/observation columns this app adds during review.
+    const sourceColumns = headers.length ? headers : (cards[0] ? Object.keys(cards[0].row) : [])
+    const dynamicColumns = ['#', ...sourceColumns, 'Amount Deducted', 'Observation']
+    const deductedColIdx = dynamicColumns.length - 2
+    const observationColIdx = dynamicColumns.length - 1
+
     const aoa = []
     const styleRows = []
     let seq = 0
@@ -349,7 +365,7 @@ export default function App() {
       const group = byFacility[facility]
       aoa.push(['', facility])
       styleRows.push('facility')
-      aoa.push(ANTI_FRAUD_COLUMNS.map(c => c.header))
+      aoa.push(dynamicColumns)
       styleRows.push('header')
 
       let facilityTotal = 0
@@ -357,31 +373,14 @@ export default function App() {
         seq += 1
         const deducted = parseFloat(c.deduction) || 0
         facilityTotal += deducted
-        aoa.push([
-          seq,
-          mappedValue(c, 'voucher_no') || findRowValue(c, ['papercode', 'voucher', 'code']) || '',
-          c.prescriptionDate || mappedValue(c, 'visit_date') || '',
-          mappedValue(c, 'dispensing_date') || findRowValue(c, ['dispensingdate']) || '',
-          mappedValue(c, 'patient_name') || '',
-          mappedValue(c, 'rama_number') || '',
-          mappedValue(c, 'is_newborn') || '',
-          mappedValue(c, 'gender') || '',
-          mappedValue(c, 'patient_type') || '',
-          mappedValue(c, 'doctor_name') || '',
-          mappedValue(c, 'practitioner_type') || '',
-          facility,
-          originalAmount(c) ?? '',
-          mappedValue(c, 'insurance_copayment') || '',
-          findRowValue(c, ['medicinecost']) ?? '',
-          deducted,
-          c.comment || findRowValue(c, ['observation']) || 'Not Found'
-        ])
+        const sourceValues = sourceColumns.map(h => c.row[h] ?? '')
+        aoa.push([seq, ...sourceValues, deducted, c.comment || findRowValue(c, ['observation']) || 'Not Found'])
         styleRows.push('data')
       })
 
-      const totalRow = new Array(ANTI_FRAUD_COLUMNS.length).fill('')
+      const totalRow = new Array(dynamicColumns.length).fill('')
       totalRow[1] = 'TOTAL'
-      totalRow[15] = facilityTotal
+      totalRow[deductedColIdx] = facilityTotal
       aoa.push(totalRow)
       styleRows.push('total')
       aoa.push([])
@@ -391,7 +390,9 @@ export default function App() {
     })
 
     const ws = XLSX.utils.aoa_to_sheet(aoa)
-    ws['!cols'] = ANTI_FRAUD_COLUMNS.map(c => ({ wch: c.width }))
+    ws['!cols'] = dynamicColumns.map((h, i) => ({
+      wch: i === 0 ? 5 : i === observationColIdx ? 40 : Math.min(Math.max(String(h).length + 4, 12), 30)
+    }))
     aoa.forEach((row, r) => {
       const kind = styleRows[r]
       row.forEach((_, ci) => {
@@ -496,6 +497,7 @@ export default function App() {
     setMapping({})
     setCards([])
     setCurrentIndex(0)
+    setAutoDetected(0)
   }
 
   const currentCard = cards[currentIndex]
@@ -522,8 +524,11 @@ export default function App() {
   return (
     <div className={showShell ? 'lg:flex min-h-screen' : ''}>
       {showShell && (
-        <aside className="hidden lg:flex flex-col w-56 shrink-0 border-r border-border bg-surface-1 p-4 gap-1 sticky top-0 h-screen">
-          <h1 className="text-lg font-medium tracking-tight mb-1">Verify</h1>
+        <aside className="hidden lg:flex flex-col w-60 shrink-0 border-r border-border bg-surface-1 p-4 gap-1 sticky top-0 h-screen">
+          <div className="flex items-center gap-2 mb-1">
+            <img src="/logo.svg" alt="RSSB" className="w-9 h-9 shrink-0" />
+            <h1 className="text-sm font-semibold tracking-tight leading-tight">RSSB Counter<br/>Verification System</h1>
+          </div>
           <p className="text-xs text-ink-muted mb-4">Claims verification &amp; fraud review</p>
           <nav className="flex flex-col gap-1">
             {TABS.map(([key, label]) => (
@@ -541,6 +546,10 @@ export default function App() {
           </nav>
           <div className="mt-auto flex flex-col gap-2">
             {lastSaved && <span className="text-xs text-ink-muted">Saved {lastSaved.toLocaleTimeString()}</span>}
+            <button onClick={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))} className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface-1 hover:bg-surface-2 flex items-center justify-between">
+              <span>{theme === 'light' ? 'Light mode' : 'Dark mode'}</span>
+              <span>{theme === 'light' ? '☀️' : '🌙'}</span>
+            </button>
             <button onClick={reset} className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface-1 hover:bg-surface-2">
               New file
             </button>
@@ -551,9 +560,17 @@ export default function App() {
       <div className="flex-1 min-w-0">
         {!showShell && (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-            <header className="mb-6">
-              <h1 className="text-xl font-medium tracking-tight">Verify</h1>
-              <p className="text-sm text-ink-muted mt-1">Data preparation and verification dashboard</p>
+            <header className="mb-6 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <img src="/logo.svg" alt="RSSB" className="w-11 h-11 shrink-0" />
+                <div>
+                  <h1 className="text-xl font-medium tracking-tight">RSSB Counter Verification System</h1>
+                  <p className="text-sm text-ink-muted mt-0.5">Data preparation and verification dashboard</p>
+                </div>
+              </div>
+              <button onClick={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))} className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface-1 hover:bg-surface-2 shrink-0">
+                {theme === 'light' ? '☀️ Light' : '🌙 Dark'}
+              </button>
             </header>
             <div className="mt-10 rounded-card border border-dashed border-border bg-surface-1 py-16 px-6 text-center">
               <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} id="file-upload" className="sr-only" />
@@ -568,13 +585,21 @@ export default function App() {
 
         {showShell && (
           <>
-            <div className="lg:hidden flex items-center justify-between border-b border-border bg-surface-1 px-4 py-3 sticky top-0 z-20">
-              <span className="font-medium">Verify</span>
-              <select value={stage} onChange={e => setStage(e.target.value)} className="text-sm border border-border rounded-lg px-2 py-1 bg-surface-2">
-                {TABS.map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </select>
+            <div className="lg:hidden flex items-center justify-between gap-2 border-b border-border bg-surface-1 px-4 py-3 sticky top-0 z-20">
+              <span className="font-medium flex items-center gap-2 min-w-0">
+                <img src="/logo.svg" alt="RSSB" className="w-6 h-6 shrink-0" />
+                <span className="truncate">RSSB Counter Verification</span>
+              </span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button onClick={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))} className="text-xs border border-border rounded-lg px-2 py-1 bg-surface-2" aria-label="Toggle theme">
+                  {theme === 'light' ? '☀️' : '🌙'}
+                </button>
+                <select value={stage} onChange={e => setStage(e.target.value)} className="text-sm border border-border rounded-lg px-2 py-1 bg-surface-2">
+                  {TABS.map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="sticky top-0 lg:top-0 z-10 bg-surface-0/95 backdrop-blur border-b border-border px-4 sm:px-6 lg:px-8 py-3">
@@ -598,8 +623,16 @@ export default function App() {
             <main className="px-4 sm:px-6 lg:px-8 py-6">
               {stage === 'map' && (
                 <div className="rounded-card border border-border bg-surface-1 p-5 sm:p-6 max-w-2xl">
+                  <div className={`rounded-lg px-3.5 py-2.5 mb-4 text-sm flex items-center justify-between gap-3 ${autoDetected > 0 ? 'bg-brand-light text-brand-dark' : 'bg-warn-light text-warn-dark'}`}>
+                    <span>
+                      {autoDetected > 0
+                        ? `Auto-detected ${autoDetected} of ${FIELD_DEFS.length} fields from "${fileName}".`
+                        : `Couldn't auto-detect any fields from "${fileName}" — please map manually below.`}
+                    </span>
+                    <span className="text-xs opacity-80 shrink-0">{headers.length} columns found</span>
+                  </div>
                   <p className="text-sm text-ink-muted mb-5">
-                    Map your file's columns to the fields below. Guesses are pre-filled — adjust any that look wrong.
+                    Confirm or adjust the mapping below — any guess that looks wrong can be changed.
                   </p>
                   <div className="flex flex-col gap-4 mb-6">
                     {FIELD_DEFS.map(f => (

@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: 'media',
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
@@ -16,9 +16,14 @@ export default {
           muted: 'var(--muted)'
         },
         brand: {
-          DEFAULT: '#0f6e56',
-          light: '#e1f5ee',
-          dark: '#085041'
+          DEFAULT: '#1e3a8a',
+          light: '#e5ecfb',
+          dark: '#152a63'
+        },
+        gold: {
+          DEFAULT: '#c99a2e',
+          light: '#faf1dc',
+          dark: '#8f6c1c'
         },
         danger: {
           DEFAULT: '#a32d2d',

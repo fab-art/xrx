@@ -11,15 +11,13 @@
   --muted: #7a786f;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --surface-0: #16150f;
-    --surface-1: #211f19;
-    --surface-2: #1a1914;
-    --border: #34322a;
-    --text: #f2f1ea;
-    --muted: #a09e93;
-  }
+.dark {
+  --surface-0: #0f1420;
+  --surface-1: #171d2c;
+  --surface-2: #131826;
+  --border: #2a3143;
+  --text: #edeff5;
+  --muted: #9aa2b5;
 }
 
 @layer base {
@@ -28,14 +26,14 @@
     color: var(--text);
   }
   ::selection {
-    background: #0f6e5633;
+    background: #1e3a8a33;
   }
   input, select, textarea {
     background: var(--surface-1);
     color: var(--text);
   }
   input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
-    outline: 2px solid #0f6e56;
+    outline: 2px solid #1e3a8a;
     outline-offset: 1px;
   }
 }
