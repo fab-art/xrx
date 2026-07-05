@@ -9,6 +9,7 @@ import {
   matchRecords,
   CATEGORY_LABELS
 } from './matching'
+import NetworkGraph from './NetworkGraph'
 
 const STORAGE_KEY = 'verify-app-state-v3'
 const THEME_KEY = 'verify-app-theme'
@@ -57,6 +58,7 @@ const TABS = [
   ['dashboard', 'Dashboard'],
   ['hospital', 'Hospital Data'],
   ['match', 'Match Review'],
+  ['network', 'Network Analysis'],
   ['fraud', 'Fraud review'],
   ['counter', 'Counter verification']
 ]
@@ -1425,6 +1427,19 @@ export default function App() {
                       </div>
                     </>
                   )}
+                </div>
+              )}
+
+              {stage === 'network' && (
+                <div>
+                  <p className="text-sm text-ink-muted mb-4 max-w-3xl">
+                    Explore relationships between doctors, patients, and facilities built from every voucher.
+                    Node size scales with voucher volume; edge thickness scales with how often that pair recurs
+                    together. If a hospital match has been run, relationships where over 40% of shared vouchers
+                    are Fraud Risk or Orphan are outlined in red — useful for spotting doctor-patient pairs or
+                    facility patterns worth a closer look. Drag to pan, scroll to zoom, click any node for detail.
+                  </p>
+                  <NetworkGraph cards={cards} mapping={mapping} matchResults={matchResults} matchOverrides={matchOverrides} />
                 </div>
               )}
 
