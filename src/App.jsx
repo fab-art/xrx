@@ -1,7 +1,16 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx-js-style'
+import {
+  normalizeId,
+  normalizeSex,
+  normalizeName,
+  normalizeDob,
+  buildHospitalIndex,
+  matchRecords,
+  CATEGORY_LABELS
+} from './matching'
 
-const STORAGE_KEY = 'verify-app-state-v2'
+const STORAGE_KEY = 'verify-app-state-v3'
 const THEME_KEY = 'verify-app-theme'
 const APP_NAME = 'RSSB Counter Verification System'
 
@@ -32,10 +41,22 @@ const CLASSIFICATION_DEFS = [
   { key: 'fraud', label: 'Fraud activity' }
 ]
 
+const HOSPITAL_FIELD_DEFS = [
+  { key: 'hosp_id', label: 'Beneficiary Affiliation Number', guesses: ['affiliationnumber', 'beneficiarysaffiliationnumber', 'ramanumber', 'rama', 'nationalid'] },
+  { key: 'hosp_name', label: "Beneficiary's Name", guesses: ['beneficiarysnames', 'beneficiaryname', 'patientname', 'name'] },
+  { key: 'hosp_sex', label: 'Sex / Gender', guesses: ['beneficiaryssex', 'sex', 'gender'] },
+  { key: 'hosp_dob', label: 'Age / DOB', guesses: ['beneficiarysage', 'dob', 'age', 'dateofbirth'] },
+  { key: 'hosp_date', label: 'Visit / Voucher Date', guesses: ['date', 'voucherdate', 'visitdate'] }
+]
+
+const MATCH_CATEGORIES = ['clean', 'review', 'fraud_risk', 'orphan']
+
 const TABS = [
   ['map', 'Map columns'],
   ['verify', 'Verify'],
   ['dashboard', 'Dashboard'],
+  ['hospital', 'Hospital Data'],
+  ['match', 'Match Review'],
   ['fraud', 'Fraud review'],
   ['counter', 'Counter verification']
 ]
@@ -107,6 +128,13 @@ export default function App() {
       approvedBy: '', approvedByPosition: ''
     }
   )
+  const [hospitalFiles, setHospitalFiles] = useState(initial?.hospitalFiles || [])
+  const [matchResults, setMatchResults] = useState(initial?.matchResults || null)
+  const [matchOverrides, setMatchOverrides] = useState(initial?.matchOverrides || {})
+  const [matchNotes, setMatchNotes] = useState(initial?.matchNotes || {})
+  const [matchCategoryFilter, setMatchCategoryFilter] = useState('all')
+  const [matchSearch, setMatchSearch] = useState('')
+  const [isMatching, setIsMatching] = useState(false)
   const [lastSaved, setLastSaved] = useState(null)
   const [autoDetected, setAutoDetected] = useState(initial?.autoDetected || 0)
   const [theme, setTheme] = useState(() => {
@@ -119,9 +147,13 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
-    saveState({ stage, fileName, headers, mapping, cards, currentIndex, counterHeader, autoDetected })
+    saveState({
+      stage, fileName, headers, mapping, cards, currentIndex, counterHeader, autoDetected,
+      hospitalFiles, matchResults, matchOverrides, matchNotes
+    })
     setLastSaved(new Date())
-  }, [stage, fileName, headers, mapping, cards, currentIndex, counterHeader, autoDetected])
+  }, [stage, fileName, headers, mapping, cards, currentIndex, counterHeader, autoDetected,
+      hospitalFiles, matchResults, matchOverrides, matchNotes])
 
   function handleFile(e) {
     const file = e.target.files[0]
@@ -175,6 +207,105 @@ export default function App() {
 
   function updateMapping(fieldKey, header) {
     setMapping(m => ({ ...m, [fieldKey]: header }))
+  }
+
+  function handleHospitalFiles(e) {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    files.forEach(file => {
+      const reader = new FileReader()
+      reader.onload = evt => {
+        const wb = XLSX.read(evt.target.result, { type: 'array' })
+        const sheetName = wb.SheetNames[0]
+        const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' })
+        const hdrs = json.length ? Object.keys(json[0]) : []
+        const guessedMapping = {}
+        const usedHeaders = new Set()
+        HOSPITAL_FIELD_DEFS.forEach(f => {
+          let best = ''
+          let bestScore = 0
+          hdrs.forEach(h => {
+            if (usedHeaders.has(h)) return
+            const nh = normalizeKey(h)
+            f.guesses.forEach(g => {
+              if (nh.includes(g) && g.length > bestScore) {
+                bestScore = g.length
+                best = h
+              }
+            })
+          })
+          guessedMapping[f.key] = best
+          if (best) usedHeaders.add(best)
+        })
+        setHospitalFiles(hf => [
+          ...hf,
+          { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, fileName: file.name, headers: hdrs, mapping: guessedMapping, rows: json }
+        ])
+      }
+      reader.readAsArrayBuffer(file)
+    })
+    e.target.value = ''
+  }
+
+  function updateHospitalMapping(fileId, fieldKey, header) {
+    setHospitalFiles(hf => hf.map(f => (f.id === fileId ? { ...f, mapping: { ...f.mapping, [fieldKey]: header } } : f)))
+  }
+
+  function removeHospitalFile(fileId) {
+    setHospitalFiles(hf => hf.filter(f => f.id !== fileId))
+    setMatchResults(null)
+  }
+
+  function runMatching() {
+    if (!cards.length || !hospitalFiles.length) return
+    setIsMatching(true)
+    setTimeout(() => {
+      const hospitalRecords = []
+      hospitalFiles.forEach(f => {
+        f.rows.forEach(row => {
+          const rawId = f.mapping.hosp_id ? row[f.mapping.hosp_id] : ''
+          const rawName = f.mapping.hosp_name ? row[f.mapping.hosp_name] : ''
+          const rawSex = f.mapping.hosp_sex ? row[f.mapping.hosp_sex] : ''
+          const rawDob = f.mapping.hosp_dob ? row[f.mapping.hosp_dob] : ''
+          hospitalRecords.push({
+            sourceFile: f.fileName,
+            rawId,
+            normId: normalizeId(rawId),
+            name: normalizeName(rawName),
+            sex: normalizeSex(rawSex),
+            dob: normalizeDob(rawDob),
+            row
+          })
+        })
+      })
+
+      const pharmRecords = cards.map(c => {
+        const rawId = mapping.rama_number ? c.row[mapping.rama_number] : ''
+        const rawName = mapping.patient_name ? c.row[mapping.patient_name] : ''
+        const rawSex = mapping.gender ? c.row[mapping.gender] : ''
+        const rawDob = mapping.patient_age ? c.row[mapping.patient_age] : ''
+        return {
+          id: c.id,
+          normId: normalizeId(rawId),
+          name: normalizeName(rawName),
+          sex: normalizeSex(rawSex),
+          dob: normalizeDob(rawDob)
+        }
+      })
+
+      const index = buildHospitalIndex(hospitalRecords)
+      const results = matchRecords(pharmRecords, index)
+      const byId = {}
+      results.forEach(r => { byId[r.pharmacyId] = r })
+      setMatchResults(byId)
+      setIsMatching(false)
+      setStage('match')
+    }, 30)
+  }
+
+  function matchCategoryOf(cardId) {
+    if (matchOverrides[cardId]) return matchOverrides[cardId]
+    return matchResults?.[cardId]?.category || null
   }
 
   function updateCard(id, patch) {
@@ -294,6 +425,79 @@ export default function App() {
     const progressPct = total ? Math.round((verified / total) * 100) : 0
     return { total, verified, pending, fraudFlagged, totalOriginal, totalApproved, progressPct }
   }, [cards, mapping])
+
+  const matchSummary = useMemo(() => {
+    if (!matchResults) return null
+    const counts = { clean: 0, review: 0, fraud_risk: 0, orphan: 0 }
+    cards.forEach(c => {
+      const cat = matchCategoryOf(c.id)
+      if (cat && counts[cat] !== undefined) counts[cat] += 1
+    })
+    return counts
+  }, [matchResults, matchOverrides, cards])
+
+  const filteredMatchList = useMemo(() => {
+    if (!matchResults) return []
+    let list = cards.map(c => ({ card: c, result: matchResults[c.id] })).filter(x => x.result)
+    if (matchCategoryFilter !== 'all') {
+      list = list.filter(x => matchCategoryOf(x.card.id) === matchCategoryFilter)
+    }
+    if (matchSearch.trim()) {
+      const q = matchSearch.trim().toLowerCase()
+      list = list.filter(x =>
+        Object.values(x.card.row).some(v => String(v).toLowerCase().includes(q)) ||
+        String(x.result.matchedHospital?.name || '').toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [matchResults, matchOverrides, matchCategoryFilter, matchSearch, cards])
+
+  function setMatchOverride(cardId, category) {
+    setMatchOverrides(o => ({ ...o, [cardId]: category }))
+  }
+
+  function exportMatchResults() {
+    if (!matchResults) return
+    const wb = XLSX.utils.book_new()
+    const headerStyle = { font: { name: 'Calibri', sz: 11, bold: true } }
+
+    MATCH_CATEGORIES.forEach(cat => {
+      const rows = cards
+        .filter(c => matchCategoryOf(c.id) === cat)
+        .map(c => {
+          const r = matchResults[c.id]
+          return {
+            ...c.row,
+            match_category: CATEGORY_LABELS[cat],
+            match_score: r.score,
+            match_reasons: r.reasons.join('; '),
+            matched_hospital_file: r.matchedHospital?.fileName || '',
+            matched_hospital_name: r.matchedHospital?.name || '',
+            matched_hospital_id: r.matchedHospital?.id || '',
+            reviewer_note: matchNotes[c.id] || ''
+          }
+        })
+      const sheetName = CATEGORY_LABELS[cat].slice(0, 31)
+      const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ info: 'No records in this category' }])
+      if (ws['!ref']) {
+        const range = XLSX.utils.decode_range(ws['!ref'])
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const addr = XLSX.utils.encode_cell({ r: 0, c })
+          if (ws[addr]) ws[addr].s = headerStyle
+        }
+      }
+      XLSX.utils.book_append_sheet(wb, ws, sheetName)
+    })
+
+    const summaryRows = MATCH_CATEGORIES.map(cat => ({
+      Category: CATEGORY_LABELS[cat],
+      Count: cards.filter(c => matchCategoryOf(c.id) === cat).length
+    }))
+    const summaryWs = XLSX.utils.json_to_sheet(summaryRows)
+    XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary')
+
+    XLSX.writeFile(wb, `hospital_match_${fileName || 'export'}.xlsx`)
+  }
 
   function exportResults() {
     const exportRows = cards.map(c => ({
@@ -973,6 +1177,192 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              )}
+
+              {stage === 'hospital' && (
+                <div>
+                  <div className="rounded-card border border-border bg-surface-1 p-5 sm:p-6 mb-5">
+                    <h2 className="text-base font-medium mb-1">Upload hospital files</h2>
+                    <p className="text-sm text-ink-muted mb-4">
+                      Upload one or more hospital beneficiary files (e.g. CHUK, La Médicale). Each file is
+                      auto-mapped and normalized independently, then matched against the pharmacy vouchers
+                      already loaded ({cards.length} vouchers from "{fileName}").
+                    </p>
+                    <input type="file" accept=".xlsx,.xls,.csv" multiple onChange={handleHospitalFiles} id="hosp-upload" className="sr-only" />
+                    <label htmlFor="hosp-upload" className="inline-flex items-center gap-2 cursor-pointer text-sm font-medium border border-dashed border-border rounded-lg px-4 py-2.5 bg-surface-2 hover:bg-surface-0">
+                      <span className="w-6 h-6 rounded-full bg-brand-light text-brand flex items-center justify-center text-sm">+</span>
+                      Add hospital file(s)
+                    </label>
+                  </div>
+
+                  {hospitalFiles.length === 0 && (
+                    <p className="text-sm text-ink-muted">No hospital files uploaded yet.</p>
+                  )}
+
+                  {hospitalFiles.map(f => (
+                    <div key={f.id} className="rounded-card border border-border bg-surface-1 p-5 mb-4">
+                      <div className="flex items-center justify-between gap-3 mb-3">
+                        <div>
+                          <div className="text-sm font-medium">{f.fileName}</div>
+                          <div className="text-xs text-ink-muted">{f.rows.length} records · {f.headers.length} columns</div>
+                        </div>
+                        <button onClick={() => removeHospitalFile(f.id)} className="text-xs border border-border rounded-lg px-2.5 py-1 hover:bg-danger-light hover:text-danger-dark hover:border-danger">
+                          Remove
+                        </button>
+                      </div>
+                      <div className="flex flex-col gap-3">
+                        {HOSPITAL_FIELD_DEFS.map(hf => (
+                          <div key={hf.key} className="flex items-center justify-between gap-4">
+                            <label className="text-sm min-w-[220px]">{hf.label}</label>
+                            <select
+                              value={f.mapping[hf.key] || ''}
+                              onChange={e => updateHospitalMapping(f.id, hf.key, e.target.value)}
+                              className="flex-1 max-w-xs border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2"
+                            >
+                              <option value="">— not mapped —</option>
+                              {f.headers.map(h => (
+                                <option key={h} value={h}>{h}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+
+                  {hospitalFiles.length > 0 && (
+                    <div className="rounded-card border border-border bg-surface-1 p-5">
+                      <h2 className="text-sm font-medium mb-2">Run matching</h2>
+                      <p className="text-xs text-ink-muted mb-4">
+                        Normalizes beneficiary IDs (strips "Nr" prefixes, leading zeros, whitespace), names
+                        (order-invariant, punctuation-stripped), and sex codes, then scores every pharmacy
+                        voucher against all hospital records using weighted evidence — exact ID, near-ID typo,
+                        rarity-weighted name similarity, sex agreement, and DOB agreement — with sex/DOB
+                        contradictions forcing a fraud-risk flag regardless of score. Results land in four
+                        buckets: Clean Match, Needs Review, Fraud Risk, and Orphan.
+                      </p>
+                      <button
+                        onClick={runMatching}
+                        disabled={isMatching}
+                        className="bg-brand text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-brand-dark transition-colors disabled:opacity-50"
+                      >
+                        {isMatching ? 'Matching…' : `Run matching against ${cards.length} vouchers`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {stage === 'match' && (
+                <div>
+                  {!matchResults && (
+                    <div className="rounded-card border border-border bg-surface-1 p-6 text-sm text-ink-muted">
+                      No match results yet. Go to <button onClick={() => setStage('hospital')} className="text-brand underline">Hospital Data</button> to upload hospital files and run matching.
+                    </div>
+                  )}
+
+                  {matchResults && (
+                    <>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+                        {[
+                          ['clean', 'bg-brand-light text-brand-dark'],
+                          ['review', 'bg-warn-light text-warn-dark'],
+                          ['fraud_risk', 'bg-danger-light text-danger-dark'],
+                          ['orphan', 'bg-surface-2 text-ink-muted']
+                        ].map(([cat, cls]) => (
+                          <button
+                            key={cat}
+                            onClick={() => setMatchCategoryFilter(matchCategoryFilter === cat ? 'all' : cat)}
+                            className={`rounded-card p-3.5 text-left border transition-colors ${cls} ${matchCategoryFilter === cat ? 'border-ink' : 'border-transparent'}`}
+                          >
+                            <div className="text-xs font-medium opacity-80">{CATEGORY_LABELS[cat]}</div>
+                            <div className="text-xl font-semibold mt-1">{matchSummary?.[cat] ?? 0}</div>
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 mb-4">
+                        <input
+                          placeholder="Search matched records..."
+                          value={matchSearch}
+                          onChange={e => setMatchSearch(e.target.value)}
+                          className="border border-border rounded-lg px-3 py-1.5 text-sm bg-surface-1 min-w-[200px] flex-1 sm:flex-none"
+                        />
+                        <select value={matchCategoryFilter} onChange={e => setMatchCategoryFilter(e.target.value)} className="text-xs border border-border rounded-lg px-2.5 py-1.5 bg-surface-1">
+                          <option value="all">All categories</option>
+                          {MATCH_CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
+                        </select>
+                        <button onClick={exportMatchResults} className="ml-auto text-sm rounded-lg px-3.5 py-1.5 bg-brand text-white hover:bg-brand-dark transition-colors">
+                          Export match report
+                        </button>
+                      </div>
+
+                      <div className="overflow-x-auto rounded-card border border-border">
+                        <table className="w-full text-sm bg-surface-1">
+                          <thead>
+                            <tr className="text-xs text-ink-muted text-left">
+                              <th className="px-3 py-2 font-medium">Pharmacy patient</th>
+                              <th className="px-3 py-2 font-medium">Pharmacy ID</th>
+                              <th className="px-3 py-2 font-medium">Matched hospital record</th>
+                              <th className="px-3 py-2 font-medium">Score</th>
+                              <th className="px-3 py-2 font-medium">Evidence</th>
+                              <th className="px-3 py-2 font-medium">Category</th>
+                              <th className="px-3 py-2 font-medium">Reviewer note</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredMatchList.map(({ card, result }) => {
+                              const cat = matchCategoryOf(card.id)
+                              const catCls = {
+                                clean: 'bg-brand-light text-brand-dark',
+                                review: 'bg-warn-light text-warn-dark',
+                                fraud_risk: 'bg-danger-light text-danger-dark',
+                                orphan: 'bg-surface-2 text-ink-muted'
+                              }[cat]
+                              return (
+                                <tr key={card.id} className="border-t border-border align-top">
+                                  <td className="px-3 py-2">{mappedValue(card, 'patient_name') || `Record ${card.id + 1}`}</td>
+                                  <td className="px-3 py-2">{mappedValue(card, 'rama_number') || '—'}</td>
+                                  <td className="px-3 py-2">
+                                    {result.matchedHospital ? (
+                                      <div>
+                                        <div>{result.matchedHospital.name}</div>
+                                        <div className="text-xs text-ink-muted">{result.matchedHospital.fileName} · ID {result.matchedHospital.id || '—'}</div>
+                                      </div>
+                                    ) : '—'}
+                                  </td>
+                                  <td className="px-3 py-2">{result.score}</td>
+                                  <td className="px-3 py-2 text-xs text-ink-muted max-w-[220px]">{result.reasons.join('; ')}</td>
+                                  <td className="px-3 py-2">
+                                    <select
+                                      value={cat}
+                                      onChange={e => setMatchOverride(card.id, e.target.value)}
+                                      className={`text-xs rounded-lg px-2 py-1 border-0 ${catCls}`}
+                                    >
+                                      {MATCH_CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
+                                    </select>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <input
+                                      type="text"
+                                      value={matchNotes[card.id] || ''}
+                                      onChange={e => setMatchNotes(n => ({ ...n, [card.id]: e.target.value }))}
+                                      placeholder="Analyst note..."
+                                      className="min-w-[160px] border border-border rounded-lg px-2 py-1 text-xs bg-surface-2"
+                                    />
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                            {filteredMatchList.length === 0 && (
+                              <tr><td colSpan={7} className="px-3 py-6 text-center text-ink-muted text-sm">No records match this filter.</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
