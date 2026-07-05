@@ -354,6 +354,34 @@ export default function App() {
     return Math.max(0, orig - (parseFloat(card.deduction) || 0))
   }
 
+  // Deduction basis for confirmed-fraud / ghost-patient vouchers: the RSSB-payable
+  // portion is either the mapped insurance co-payment amount, or — if that field
+  // isn't mapped — 85% of the total cost. For a normal deduction only part of this
+  // basis might be withheld; for fraud-suspected vouchers the FULL basis is withheld,
+  // driving the approved amount to zero.
+  function fraudBasisAmount(card) {
+    const coPay = parseFloat(mappedValue(card, 'insurance_copayment'))
+    if (!isNaN(coPay) && coPay > 0) return Math.round(coPay * 100) / 100
+    const orig = originalAmount(card)
+    if (orig === null) return 0
+    return Math.round(orig * 0.85 * 100) / 100
+  }
+
+  function sendToFraudReview(card, categoryLabel) {
+    updateCard(card.id, {
+      classifications: { ...card.classifications, fraud: true },
+      deduction: fraudBasisAmount(card),
+      comment: card.comment || `Flagged via Match Review — ${categoryLabel}. Full amount withheld (fraud/ghost patient).`
+    })
+  }
+
+  function undoSendToFraudReview(card) {
+    updateCard(card.id, {
+      classifications: { ...card.classifications, fraud: false },
+      deduction: 0
+    })
+  }
+
   function needsFraudReview(card) {
     return card.classifications?.fraud && (!card.prescriptionDate || !facilityOf(card))
   }
@@ -1293,10 +1321,28 @@ export default function App() {
                           <option value="all">All categories</option>
                           {MATCH_CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
                         </select>
-                        <button onClick={exportMatchResults} className="ml-auto text-sm rounded-lg px-3.5 py-1.5 bg-brand text-white hover:bg-brand-dark transition-colors">
+                        <button
+                          onClick={() => {
+                            const targets = cards.filter(c => ['fraud_risk', 'orphan'].includes(matchCategoryOf(c.id)) && !c.classifications?.fraud)
+                            if (!targets.length) { alert('No unflagged Fraud Risk or Orphan records to send.'); return }
+                            if (!confirm(`Send ${targets.length} Fraud Risk / Orphan voucher(s) to Fraud Review? Their full RSSB-payable amount will be withheld (approved amount set to 0).`)) return
+                            targets.forEach(c => sendToFraudReview(c, CATEGORY_LABELS[matchCategoryOf(c.id)]))
+                          }}
+                          className="ml-auto text-sm rounded-lg px-3.5 py-1.5 bg-danger text-white hover:bg-danger-dark transition-colors"
+                        >
+                          Send Fraud Risk + Orphan to Fraud Review
+                        </button>
+                        <button onClick={exportMatchResults} className="text-sm rounded-lg px-3.5 py-1.5 bg-brand text-white hover:bg-brand-dark transition-colors">
                           Export match report
                         </button>
                       </div>
+
+                      <p className="text-xs text-ink-muted mb-4 max-w-3xl">
+                        Reminder: a normal deduction is calculated against 85% of total cost, or the mapped
+                        insurance co-payment amount if present. For vouchers sent here as Fraud Risk or Orphan,
+                        that entire basis is withheld — the approved/RSSB-payable amount becomes 0. You can
+                        still edit the deduction manually in the Fraud review tab.
+                      </p>
 
                       <div className="overflow-x-auto rounded-card border border-border">
                         <table className="w-full text-sm bg-surface-1">
@@ -1309,6 +1355,7 @@ export default function App() {
                               <th className="px-3 py-2 font-medium">Evidence</th>
                               <th className="px-3 py-2 font-medium">Category</th>
                               <th className="px-3 py-2 font-medium">Reviewer note</th>
+                              <th className="px-3 py-2 font-medium">Fraud review</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1352,6 +1399,21 @@ export default function App() {
                                       className="min-w-[160px] border border-border rounded-lg px-2 py-1 text-xs bg-surface-2"
                                     />
                                   </td>
+                                  <td className="px-3 py-2">
+                                    {card.classifications?.fraud ? (
+                                      <div className="flex flex-col gap-1 items-start">
+                                        <span className="text-xs px-2 py-0.5 rounded-full bg-danger-light text-danger-dark">Sent ✓ (deducted {(parseFloat(card.deduction) || 0).toLocaleString()})</span>
+                                        <button onClick={() => undoSendToFraudReview(card)} className="text-xs text-ink-muted underline">Undo</button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        onClick={() => sendToFraudReview(card, CATEGORY_LABELS[cat])}
+                                        className="text-xs border border-danger text-danger-dark rounded-lg px-2 py-1 hover:bg-danger-light"
+                                      >
+                                        Send to Fraud Review
+                                      </button>
+                                    )}
+                                  </td>
                                 </tr>
                               )
                             })}
@@ -1368,8 +1430,14 @@ export default function App() {
 
               {stage === 'fraud' && (
                 <div>
-                  <p className="text-sm text-ink-muted mb-4">
+                  <p className="text-sm text-ink-muted mb-2">
                     All vouchers flagged as fraud activity. Adjust deduction, comment, prescription date, and facility here before generating the report.
+                  </p>
+                  <p className="text-xs text-ink-muted mb-4 bg-surface-2 border border-border rounded-lg px-3 py-2 max-w-3xl">
+                    Reminder: a deduction is normally calculated against 85% of the total cost, or the mapped
+                    insurance co-payment amount when available. Vouchers sent here as confirmed Fraud Risk or
+                    Ghost Patient have that entire basis withheld — the approved amount becomes 0. Adjust the
+                    deduction field manually if only a partial amount should be withheld instead.
                   </p>
                   <div className="overflow-x-auto rounded-card border border-border mb-4">
                     <table className="w-full text-sm bg-surface-1">
