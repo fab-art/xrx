@@ -10,110 +10,35 @@ import {
   CATEGORY_LABELS
 } from './matching'
 import NetworkGraph from './NetworkGraph'
-
-const STORAGE_KEY = 'verify-app-state-v3'
-const THEME_KEY = 'verify-app-theme'
-const APP_NAME = 'RSSB Counter Verification System'
-
-const FIELD_DEFS = [
-  { key: 'voucher_no', label: 'Paper Code / Voucher No', guesses: ['papercode', 'voucheridentification', 'voucher', 'claimno', 'code', 'n0', 'no'] },
-  { key: 'visit_date', label: 'Prescription Date', guesses: ['prescriptiondate', 'date', 'visit'] },
-  { key: 'dispensing_date', label: 'Dispensing Date', guesses: ['dispensingdate', 'dispatchdate'] },
-  { key: 'patient_name', label: 'Patient Name', guesses: ['beneficiarysnames', 'beneficiaryname', 'patient', 'name', 'beneficiary'] },
-  { key: 'patient_type', label: 'Patient Type', guesses: ['patienttype', 'affiliatesaffectation', 'affectation'] },
-  { key: 'gender', label: 'Gender', guesses: ['gender', 'sex', 'beneficiaryssex'] },
-  { key: 'is_newborn', label: 'Is Newborn', guesses: ['isnewborn', 'newborn'] },
-  { key: 'patient_age', label: 'Beneficiary Age / DOB', guesses: ['beneficiarysage', 'age', 'dob'] },
-  { key: 'rama_number', label: 'RAMA / Affiliation Number', guesses: ['ramanumber', 'rama', 'affiliationnumber', 'beneficiaryaffiliationnumber', 'affiliation'] },
-  { key: 'affiliate_name', label: "Affiliate's Name", guesses: ['affiliatesnames', 'affiliatename'] },
-  { key: 'doctor_name', label: 'Practitioner Name', guesses: ['practitionername', 'doctor', 'practitioner', 'prescriber', 'prescribersnames'] },
-  { key: 'practitioner_type', label: 'Practitioner Type', guesses: ['practitionertype', 'om'] },
-  { key: 'facility_name', label: 'Health Facility', guesses: ['healthfacility', 'facility', 'pharmacy', 'hospital'] },
-  { key: 'amount', label: 'Total Cost', guesses: ['totalcost100', 'totalcost', 'amount', 'total', 'cost', 'claim', 'value', 'price'] },
-  { key: 'patient_copayment', label: 'Patient Co-payment', guesses: ['patientcopayment', 'patientco'] },
-  { key: 'insurance_copayment', label: 'Insurance / RSSB Co-payment', guesses: ['rssbcost85', 'rssbcost', 'insuranceco', 'insurancecopayment'] },
-  { key: 'difference', label: 'Difference', guesses: ['difference'] },
-  { key: 'observation', label: 'Observation', guesses: ['observation', 'comment', 'remark'] }
-]
-
-const CLASSIFICATION_DEFS = [
-  { key: 'pharma', label: 'Pharmacological compliance' },
-  { key: 'rssb', label: 'RSSB rules compliance' },
-  { key: 'fraud', label: 'Fraud activity' }
-]
-
-const HOSPITAL_FIELD_DEFS = [
-  { key: 'hosp_id', label: 'Beneficiary Affiliation Number', guesses: ['affiliationnumber', 'beneficiarysaffiliationnumber', 'ramanumber', 'rama', 'nationalid'] },
-  { key: 'hosp_name', label: "Beneficiary's Name", guesses: ['beneficiarysnames', 'beneficiaryname', 'patientname', 'name'] },
-  { key: 'hosp_sex', label: 'Sex / Gender', guesses: ['beneficiaryssex', 'sex', 'gender'] },
-  { key: 'hosp_dob', label: 'Age / DOB', guesses: ['beneficiarysage', 'dob', 'age', 'dateofbirth'] },
-  { key: 'hosp_date', label: 'Visit / Voucher Date', guesses: ['date', 'voucherdate', 'visitdate'] }
-]
-
-const MATCH_CATEGORIES = ['clean', 'review', 'fraud_risk', 'orphan']
-
-const TABS = [
-  ['map', 'Map columns'],
-  ['verify', 'Verify'],
-  ['dashboard', 'Dashboard'],
-  ['hospital', 'Hospital Data'],
-  ['match', 'Match Review'],
-  ['network', 'Network Analysis'],
-  ['fraud', 'Fraud review'],
-  ['counter', 'Counter verification']
-]
-
-function toDateValue(v) {
-  if (!v) return null
-  if (v instanceof Date) return v
-  const d = new Date(v)
-  return isNaN(d.getTime()) ? null : d
-}
-
-function normalizeKey(s) {
-  return String(s).toLowerCase().replace(/[^a-z0-9]/g, '')
-}
-
-function findRowValue(card, candidates) {
-  const keys = Object.keys(card.row || {})
-  for (const k of keys) {
-    const nk = normalizeKey(k)
-    if (candidates.some(c => nk.includes(c))) return card.row[k]
-  }
-  return undefined
-}
-
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-
-function saveState(state) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-  } catch {
-    // ignore quota errors
-  }
-}
-
-function emptyClassifications() {
-  return { pharma: false, rssb: false, fraud: false }
-}
+import Sidebar from './components/Sidebar'
+import FraudReviewView from './components/FraudReviewView'
+import CounterVerificationView from './components/CounterVerificationView'
+import { useDialog } from './components/Dialog'
+import {
+  STORAGE_KEY, THEME_KEY, SAVE_DEBOUNCE_MS,
+  FIELD_DEFS, CLASSIFICATION_DEFS, HOSPITAL_FIELD_DEFS, MATCH_CATEGORIES, TABS,
+  emptyClassifications
+} from './config'
+import { loadState, saveState, clearState } from './utils/storage'
+import { autoMapHeaders, parseSpreadsheetFile } from './fileParsing'
+import * as CH from './cardHelpers'
+import { cleanCards, revertCleaning, summarizeChanges } from './dataCleaning'
+import {
+  buildVerifiedWorkbook, buildFraudReportWorkbook,
+  buildCounterReportWorkbook, buildMatchReportWorkbook
+} from './reportGenerators'
 
 export default function App() {
-  const persisted = useRef(loadState())
-  const initial = persisted.current
+  const { alertUser, confirmUser } = useDialog()
+  const saveTimer = useRef(null)
+  const [hydrated, setHydrated] = useState(false)
 
-  const [stage, setStage] = useState(initial?.stage || 'landing')
-  const [fileName, setFileName] = useState(initial?.fileName || '')
-  const [headers, setHeaders] = useState(initial?.headers || [])
-  const [mapping, setMapping] = useState(initial?.mapping || {})
-  const [cards, setCards] = useState(initial?.cards || [])
-  const [currentIndex, setCurrentIndex] = useState(initial?.currentIndex || 0)
+  const [stage, setStage] = useState('landing')
+  const [fileName, setFileName] = useState('')
+  const [headers, setHeaders] = useState([])
+  const [mapping, setMapping] = useState({})
+  const [cards, setCards] = useState([])
+  const [currentIndex, setCurrentIndex] = useState(0)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [advFilter, setAdvFilter] = useState('none')
@@ -122,23 +47,23 @@ export default function App() {
   const [dateTo, setDateTo] = useState('')
   const [sortBy, setSortBy] = useState('none')
   const [sortDir, setSortDir] = useState('asc')
-  const [counterHeader, setCounterHeader] = useState(
-    initial?.counterHeader || {
-      code: '', pharmacyName: '', period: '', tin: '',
-      preparedBy: '', preparedByPosition: '',
-      verifiedBy: '', verifiedByPosition: '',
-      approvedBy: '', approvedByPosition: ''
-    }
-  )
-  const [hospitalFiles, setHospitalFiles] = useState(initial?.hospitalFiles || [])
-  const [matchResults, setMatchResults] = useState(initial?.matchResults || null)
-  const [matchOverrides, setMatchOverrides] = useState(initial?.matchOverrides || {})
-  const [matchNotes, setMatchNotes] = useState(initial?.matchNotes || {})
+  const [counterHeader, setCounterHeader] = useState({
+    code: '', pharmacyName: '', period: '', tin: '',
+    preparedBy: '', preparedByPosition: '',
+    verifiedBy: '', verifiedByPosition: '',
+    approvedBy: '', approvedByPosition: ''
+  })
+  const [hospitalFiles, setHospitalFiles] = useState([])
+  const [matchResults, setMatchResults] = useState(null)
+  const [matchOverrides, setMatchOverrides] = useState({})
+  const [matchNotes, setMatchNotes] = useState({})
   const [matchCategoryFilter, setMatchCategoryFilter] = useState('all')
   const [matchSearch, setMatchSearch] = useState('')
   const [isMatching, setIsMatching] = useState(false)
   const [lastSaved, setLastSaved] = useState(null)
-  const [autoDetected, setAutoDetected] = useState(initial?.autoDetected || 0)
+  const [storageWarning, setStorageWarning] = useState(false)
+  const [autoDetected, setAutoDetected] = useState(0)
+  const [cleaningReport, setCleaningReport] = useState(null)
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem(THEME_KEY) || 'light' } catch { return 'light' }
   })
@@ -148,43 +73,75 @@ export default function App() {
     try { localStorage.setItem(THEME_KEY, theme) } catch { /* ignore */ }
   }, [theme])
 
+  // One-time async hydration from IndexedDB on mount. Unlike the old
+  // localStorage-backed version, this can't be read synchronously during
+  // useState initialization — IndexedDB access is always async — so the app
+  // briefly renders its default (empty) state before hydrating. The
+  // debounced save effect below is guarded on `hydrated` so it can't fire
+  // (and overwrite real saved data with these empty defaults) before this
+  // completes.
   useEffect(() => {
-    saveState({
-      stage, fileName, headers, mapping, cards, currentIndex, counterHeader, autoDetected,
-      hospitalFiles, matchResults, matchOverrides, matchNotes
+    let cancelled = false
+    loadState(STORAGE_KEY).then(saved => {
+      if (cancelled) return
+      if (saved) {
+        if (saved.stage) setStage(saved.stage)
+        if (saved.fileName) setFileName(saved.fileName)
+        if (saved.headers) setHeaders(saved.headers)
+        if (saved.mapping) setMapping(saved.mapping)
+        if (saved.cards) setCards(saved.cards)
+        if (typeof saved.currentIndex === 'number') setCurrentIndex(saved.currentIndex)
+        if (saved.counterHeader) setCounterHeader(saved.counterHeader)
+        if (saved.autoDetected) setAutoDetected(saved.autoDetected)
+        if (saved.hospitalFiles) setHospitalFiles(saved.hospitalFiles)
+        if (saved.matchResults) setMatchResults(saved.matchResults)
+        if (saved.matchOverrides) setMatchOverrides(saved.matchOverrides)
+        if (saved.matchNotes) setMatchNotes(saved.matchNotes)
+      }
+      setHydrated(true)
     })
-    setLastSaved(new Date())
-  }, [stage, fileName, headers, mapping, cards, currentIndex, counterHeader, autoDetected,
+    return () => { cancelled = true }
+  }, [])
+
+  // Debounced + failure-aware persistence. Previously this fired a full
+  // JSON.stringify + localStorage.setItem of the entire app state (including
+  // every hospital file's raw rows) on EVERY keystroke in any comment/search
+  // field, and silently swallowed quota-exceeded errors — meaning a full
+  // session's review work could be lost with no warning once the serialized
+  // state passed the browser's ~5-10MB localStorage limit. Storage now runs
+  // on IndexedDB (no practical size ceiling for this app's data), still
+  // debounced, and still tells the user if a save actually fails.
+  useEffect(() => {
+    if (!hydrated) return
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      saveState(STORAGE_KEY, {
+        stage, fileName, headers, mapping, cards, currentIndex, counterHeader, autoDetected,
+        hospitalFiles, matchResults, matchOverrides, matchNotes
+      }).then(result => {
+        if (result.ok) {
+          setStorageWarning(false)
+          setLastSaved(new Date())
+        } else {
+          setStorageWarning(true)
+        }
+      })
+    }, SAVE_DEBOUNCE_MS)
+    return () => clearTimeout(saveTimer.current)
+  }, [hydrated, stage, fileName, headers, mapping, cards, currentIndex, counterHeader, autoDetected,
       hospitalFiles, matchResults, matchOverrides, matchNotes])
 
-  function handleFile(e) {
+  async function handleFile(e) {
     const file = e.target.files[0]
     if (!file) return
     setFileName(file.name)
-    const reader = new FileReader()
-    reader.onload = evt => {
-      const wb = XLSX.read(evt.target.result, { type: 'array' })
-      const sheetName = wb.SheetNames[0]
-      const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' })
-      const hdrs = json.length ? Object.keys(json[0]) : []
-      const guessedMapping = {}
-      const usedHeaders = new Set()
-      FIELD_DEFS.forEach(f => {
-        let best = ''
-        let bestScore = 0
-        hdrs.forEach(h => {
-          if (usedHeaders.has(h)) return
-          const nh = normalizeKey(h)
-          f.guesses.forEach(g => {
-            if (nh.includes(g) && g.length > bestScore) {
-              bestScore = g.length
-              best = h
-            }
-          })
-        })
-        guessedMapping[f.key] = best
-        if (best) usedHeaders.add(best)
-      })
+    try {
+      const { headers: hdrs, rows: json } = await parseSpreadsheetFile(file)
+      if (!json.length) {
+        await alertUser(`"${file.name}" doesn't contain any data rows. Please check the file and try again.`)
+        return
+      }
+      const guessedMapping = autoMapHeaders(hdrs, FIELD_DEFS)
       setAutoDetected(Object.values(guessedMapping).filter(Boolean).length)
       setHeaders(hdrs)
       setMapping(guessedMapping)
@@ -203,49 +160,40 @@ export default function App() {
       )
       setCurrentIndex(0)
       setStage('map')
+    } catch (err) {
+      console.error(err)
+      await alertUser(`Couldn't read "${file.name}". Please make sure it's a valid Excel or CSV file.`)
     }
-    reader.readAsArrayBuffer(file)
   }
 
   function updateMapping(fieldKey, header) {
     setMapping(m => ({ ...m, [fieldKey]: header }))
   }
 
-  function handleHospitalFiles(e) {
+  async function handleHospitalFiles(e) {
     const files = Array.from(e.target.files || [])
     if (!files.length) return
-    files.forEach(file => {
-      const reader = new FileReader()
-      reader.onload = evt => {
-        const wb = XLSX.read(evt.target.result, { type: 'array' })
-        const sheetName = wb.SheetNames[0]
-        const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' })
-        const hdrs = json.length ? Object.keys(json[0]) : []
-        const guessedMapping = {}
-        const usedHeaders = new Set()
-        HOSPITAL_FIELD_DEFS.forEach(f => {
-          let best = ''
-          let bestScore = 0
-          hdrs.forEach(h => {
-            if (usedHeaders.has(h)) return
-            const nh = normalizeKey(h)
-            f.guesses.forEach(g => {
-              if (nh.includes(g) && g.length > bestScore) {
-                bestScore = g.length
-                best = h
-              }
-            })
-          })
-          guessedMapping[f.key] = best
-          if (best) usedHeaders.add(best)
-        })
-        setHospitalFiles(hf => [
-          ...hf,
-          { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, fileName: file.name, headers: hdrs, mapping: guessedMapping, rows: json }
-        ])
+    const results = await Promise.allSettled(files.map(parseSpreadsheetFile))
+    const failed = []
+    results.forEach((res, i) => {
+      if (res.status === 'rejected') {
+        failed.push(files[i].name)
+        return
       }
-      reader.readAsArrayBuffer(file)
+      const { headers: hdrs, rows: json, fileName: name } = res.value
+      if (!json.length) {
+        failed.push(`${name} (no data rows)`)
+        return
+      }
+      const guessedMapping = autoMapHeaders(hdrs, HOSPITAL_FIELD_DEFS)
+      setHospitalFiles(hf => [
+        ...hf,
+        { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, fileName: name, headers: hdrs, mapping: guessedMapping, rows: json }
+      ])
     })
+    if (failed.length) {
+      await alertUser(`Couldn't load: ${failed.join(', ')}. Please check these files and try again.`)
+    }
     e.target.value = ''
   }
 
@@ -322,51 +270,30 @@ export default function App() {
     )
   }
 
-  function mappedValue(card, key) {
-    const header = mapping[key]
-    return header ? card.row[header] : ''
+  // Thin, mapping-bound wrappers around the pure functions in cardHelpers.js —
+  // kept as local functions so the render code below (largely unchanged)
+  // doesn't need `mapping` threaded through every call site, while the actual
+  // logic lives in a module that's independently unit-tested.
+  const mappedValue = (card, key) => CH.mappedValue(card, key, mapping)
+  const facilityOf = card => CH.facilityOf(card, mapping)
+  const doctorOf = card => CH.doctorOf(card, mapping)
+  const voucherOf = card => CH.voucherOf(card, mapping)
+  const dateOf = card => CH.dateOf(card, mapping)
+  const originalAmount = card => CH.originalAmount(card, mapping)
+  const approvedAmount = card => CH.approvedAmount(card, mapping)
+  const fraudBasisAmount = card => CH.fraudBasisAmount(card, mapping)
+  const needsFraudReview = card => CH.needsFraudReview(card, mapping)
+
+  function runCleaning() {
+    const { cleanedCards, changes } = cleanCards(cards, mapping)
+    setCards(cleanedCards)
+    setCleaningReport(changes)
+    setStage('clean')
   }
 
-  function facilityOf(card) {
-    const override = (card.facilityOverride || '').trim()
-    if (override) return override
-    return String(mappedValue(card, 'facility_name') || '').trim()
-  }
-
-  function doctorOf(card) {
-    return String(mappedValue(card, 'doctor_name') || '').trim()
-  }
-
-  function voucherOf(card) {
-    return String(mappedValue(card, 'voucher_no') || '').trim()
-  }
-
-  function dateOf(card) {
-    return toDateValue(mappedValue(card, 'visit_date'))
-  }
-
-  function originalAmount(card) {
-    const v = parseFloat(mappedValue(card, 'amount'))
-    return isNaN(v) ? null : v
-  }
-
-  function approvedAmount(card) {
-    const orig = originalAmount(card)
-    if (orig === null) return null
-    return Math.max(0, orig - (parseFloat(card.deduction) || 0))
-  }
-
-  // Deduction basis for confirmed-fraud / ghost-patient vouchers: the RSSB-payable
-  // portion is either the mapped insurance co-payment amount, or — if that field
-  // isn't mapped — 85% of the total cost. For a normal deduction only part of this
-  // basis might be withheld; for fraud-suspected vouchers the FULL basis is withheld,
-  // driving the approved amount to zero.
-  function fraudBasisAmount(card) {
-    const coPay = parseFloat(mappedValue(card, 'insurance_copayment'))
-    if (!isNaN(coPay) && coPay > 0) return Math.round(coPay * 100) / 100
-    const orig = originalAmount(card)
-    if (orig === null) return 0
-    return Math.round(orig * 0.85 * 100) / 100
+  function undoCleaning() {
+    setCards(cs => revertCleaning(cs))
+    setCleaningReport(null)
   }
 
   function sendToFraudReview(card, categoryLabel) {
@@ -382,10 +309,6 @@ export default function App() {
       classifications: { ...card.classifications, fraud: false },
       deduction: 0
     })
-  }
-
-  function needsFraudReview(card) {
-    return card.classifications?.fraud && (!card.prescriptionDate || !facilityOf(card))
   }
 
   const repeatedIds = useMemo(() => {
@@ -488,256 +411,48 @@ export default function App() {
 
   function exportMatchResults() {
     if (!matchResults) return
-    const wb = XLSX.utils.book_new()
-    const headerStyle = { font: { name: 'Calibri', sz: 11, bold: true } }
-
-    MATCH_CATEGORIES.forEach(cat => {
-      const rows = cards
-        .filter(c => matchCategoryOf(c.id) === cat)
-        .map(c => {
-          const r = matchResults[c.id]
-          return {
-            ...c.row,
-            match_category: CATEGORY_LABELS[cat],
-            match_score: r.score,
-            match_reasons: r.reasons.join('; '),
-            matched_hospital_file: r.matchedHospital?.fileName || '',
-            matched_hospital_name: r.matchedHospital?.name || '',
-            matched_hospital_id: r.matchedHospital?.id || '',
-            reviewer_note: matchNotes[c.id] || ''
-          }
-        })
-      const sheetName = CATEGORY_LABELS[cat].slice(0, 31)
-      const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ info: 'No records in this category' }])
-      if (ws['!ref']) {
-        const range = XLSX.utils.decode_range(ws['!ref'])
-        for (let c = range.s.c; c <= range.e.c; c++) {
-          const addr = XLSX.utils.encode_cell({ r: 0, c })
-          if (ws[addr]) ws[addr].s = headerStyle
-        }
-      }
-      XLSX.utils.book_append_sheet(wb, ws, sheetName)
-    })
-
-    const summaryRows = MATCH_CATEGORIES.map(cat => ({
-      Category: CATEGORY_LABELS[cat],
-      Count: cards.filter(c => matchCategoryOf(c.id) === cat).length
-    }))
-    const summaryWs = XLSX.utils.json_to_sheet(summaryRows)
-    XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary')
-
+    const wb = buildMatchReportWorkbook({ cards, matchResults, matchNotes, categoryOf: matchCategoryOf })
     XLSX.writeFile(wb, `hospital_match_${fileName || 'export'}.xlsx`)
   }
 
   function exportResults() {
-    const exportRows = cards.map(c => ({
-      ...c.row,
-      verification_status: c.status,
-      pharma_compliance: c.classifications?.pharma ? 'Yes' : 'No',
-      rssb_compliance: c.classifications?.rssb ? 'Yes' : 'No',
-      fraud_activity: c.classifications?.fraud ? 'Yes' : 'No',
-      comment: c.comment,
-      prescription_date: c.prescriptionDate,
-      facility_override: c.facilityOverride,
-      deduction: c.deduction || 0,
-      approved_amount: approvedAmount(c)
-    }))
-    const ws = XLSX.utils.json_to_sheet(exportRows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Verified')
+    const wb = buildVerifiedWorkbook({ cards, mapping })
     XLSX.writeFile(wb, `verified_${fileName || 'export'}.xlsx`)
   }
 
-  function draftSheetRows() {
-    return cards.map(c => ({
-      ...c.row,
-      status: c.status,
-      pharma_compliance: c.classifications?.pharma ? 'Yes' : 'No',
-      rssb_compliance: c.classifications?.rssb ? 'Yes' : 'No',
-      fraud_activity: c.classifications?.fraud ? 'Yes' : 'No',
-      prescription_date: c.prescriptionDate,
-      facility_override: c.facilityOverride,
-      deduction: c.deduction || 0,
-      original_amount: originalAmount(c),
-      approved_amount: approvedAmount(c),
-      comment: c.comment,
-      explanation: c.explanation
-    }))
-  }
-
-  function generateFraudReport() {
+  async function generateFraudReport() {
     const fraudCards = cards.filter(c => c.classifications?.fraud)
     if (fraudCards.length === 0) {
-      alert('No vouchers are classified as fraud activity yet.')
+      await alertUser('No vouchers are classified as fraud activity yet.')
       return
     }
-    const incomplete = fraudCards.filter(needsFraudReview)
-    if (incomplete.length > 0) {
-      const proceed = confirm(
-        `${incomplete.length} fraud voucher(s) are missing prescription date and/or health facility. ` +
+    const incompletePreview = fraudCards.filter(needsFraudReview)
+    if (incompletePreview.length > 0) {
+      const proceed = await confirmUser(
+        `${incompletePreview.length} fraud voucher(s) are missing prescription date and/or health facility. ` +
         `They will be excluded from the report until completed in the Fraud review tab. Continue anyway?`
       )
       if (!proceed) return
     }
-    const complete = fraudCards.filter(c => !needsFraudReview(c))
-
-    const byFacility = {}
-    complete.forEach(c => {
-      const facility = facilityOf(c) || 'Unknown facility'
-      if (!byFacility[facility]) byFacility[facility] = []
-      byFacility[facility].push(c)
-    })
-
-    const boldCambria = { font: { name: 'Cambria', sz: 11, bold: true } }
-    const timesHighlighted = { font: { name: 'Times New Roman', sz: 12 }, fill: { fgColor: { rgb: 'FFFFFF00' }, patternType: 'solid' } }
-    const timesBold = { font: { name: 'Times New Roman', sz: 12, bold: true } }
-    const facilityLabel = { font: { name: 'Times New Roman', sz: 12, bold: false } }
-
-    // Flexible column set: mirrors whatever columns actually exist in the uploaded file,
-    // plus the deduction/observation columns this app adds during review.
-    const sourceColumns = headers.length ? headers : (cards[0] ? Object.keys(cards[0].row) : [])
-    const dynamicColumns = ['#', 'Prescription Date (Verified)', ...sourceColumns, 'Amount Deducted', 'Observation']
-    const deductedColIdx = dynamicColumns.length - 2
-    const observationColIdx = dynamicColumns.length - 1
-
-    const aoa = []
-    const styleRows = []
-    let seq = 0
-    const facilitySummary = []
-
-    Object.keys(byFacility).sort().forEach(facility => {
-      const group = byFacility[facility]
-      aoa.push(['', facility])
-      styleRows.push('facility')
-      aoa.push(dynamicColumns)
-      styleRows.push('header')
-
-      let facilityTotal = 0
-      group.forEach(c => {
-        seq += 1
-        const deducted = parseFloat(c.deduction) || 0
-        facilityTotal += deducted
-        const verifiedDate = c.prescriptionDate || mappedValue(c, 'visit_date') || ''
-        const sourceValues = sourceColumns.map(h => c.row[h] ?? '')
-        aoa.push([seq, verifiedDate, ...sourceValues, deducted, c.comment || findRowValue(c, ['observation']) || 'Not Found'])
-        styleRows.push('data')
-      })
-
-      const totalRow = new Array(dynamicColumns.length).fill('')
-      totalRow[2] = 'TOTAL'
-      totalRow[deductedColIdx] = facilityTotal
-      aoa.push(totalRow)
-      styleRows.push('total')
-      aoa.push([])
-      styleRows.push('blank')
-
-      facilitySummary.push({ 'Health Facility': facility, 'Fraud Vouchers': group.length, 'Total Amount Deducted': facilityTotal })
-    })
-
-    const ws = XLSX.utils.aoa_to_sheet(aoa)
-    ws['!cols'] = dynamicColumns.map((h, i) => ({
-      wch: i === 0 ? 5 : i === observationColIdx ? 40 : Math.min(Math.max(String(h).length + 4, 12), 30)
-    }))
-    aoa.forEach((row, r) => {
-      const kind = styleRows[r]
-      row.forEach((_, ci) => {
-        const addr = XLSX.utils.encode_cell({ r, c: ci })
-        if (!ws[addr]) return
-        if (kind === 'facility') ws[addr].s = facilityLabel
-        else if (kind === 'header') ws[addr].s = boldCambria
-        else if (kind === 'data') ws[addr].s = timesHighlighted
-        else if (kind === 'total') ws[addr].s = timesBold
-      })
-    })
-
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Anti Fraud Report')
-    const summaryWs = XLSX.utils.json_to_sheet(facilitySummary)
-    XLSX.utils.book_append_sheet(wb, summaryWs, 'Facility Summary')
-    const draftWs = XLSX.utils.json_to_sheet(draftSheetRows())
-    XLSX.utils.book_append_sheet(wb, draftWs, 'All Vouchers Draft')
-    XLSX.writeFile(wb, `fraud_report_${fileName || 'export'}.xlsx`)
-  }
-
-  function generateCounterReport() {
-    const deducted = cards.filter(c => (parseFloat(c.deduction) || 0) > 0)
-    if (deducted.length === 0) {
-      alert('No vouchers currently have a deduction to include in the counter verification report.')
+    const { workbook, completeCount } = buildFraudReportWorkbook({ cards, headers, mapping })
+    if (completeCount === 0) {
+      await alertUser('No fraud vouchers have both a prescription date and a health facility yet — nothing to include in the report.')
       return
     }
+    XLSX.writeFile(workbook, `fraud_report_${fileName || 'export'}.xlsx`)
+  }
 
-    const titleStyle = { font: { name: 'Arial', sz: 10, bold: true } }
-    const centerTitleStyle = { font: { name: 'Arial', sz: 10, bold: true }, alignment: { horizontal: 'left' } }
-    const tableHeaderStyle = { font: { name: 'Calibri', sz: 12, bold: true }, alignment: { horizontal: 'center' } }
-    const dataStyle = { font: { name: 'Arial', sz: 11 }, alignment: { horizontal: 'left' } }
-    const totalStyle = { font: { name: 'Arial', sz: 11, bold: true } }
-    const footerLabelStyle = { font: { name: 'Arial', sz: 10, bold: true } }
-
-    const aoa = [
-      [counterHeader.code ? `CODE/PHARMACY: ${counterHeader.code}` : 'CODE/PHARMACY:'],
-      [counterHeader.pharmacyName || ''],
-      ['', '', counterHeader.period ? `PERIOD: ${counterHeader.period}` : 'PERIOD:'],
-      [counterHeader.tin ? `TIN: ${counterHeader.tin}` : 'TIN:'],
-      [],
-      ['', '', 'COUNTER VERIFICATION REPORT'],
-      [],
-      ['NO', 'N° BEN.', 'RAMA Number', 'Difference', 'Explanation of deduction']
-    ]
-    const styleRows = ['title', 'title', 'title', 'title', 'blank', 'title', 'blank', 'header']
-
-    let totalDiff = 0
-    deducted.forEach((c, i) => {
-      const diff = -(parseFloat(c.deduction) || 0)
-      totalDiff += diff
-      aoa.push([
-        i + 1,
-        voucherOf(c) || findRowValue(c, ['papercode', 'voucher', 'code']) || '',
-        mappedValue(c, 'rama_number') || findRowValue(c, ['ramanumber']) || '',
-        diff,
-        c.explanation || c.comment || ''
-      ])
-      styleRows.push('data')
-    })
-
-    aoa.push(['Total', '', '', totalDiff])
-    styleRows.push('total')
-    aoa.push([])
-    styleRows.push('blank')
-    aoa.push(['Prepared by:', '', 'Verified by', '', 'Approved By'])
-    styleRows.push('footer')
-    aoa.push([`Position: ${counterHeader.preparedByPosition || ''}`, '', `Position: ${counterHeader.verifiedByPosition || ''}`, '', `Position: ${counterHeader.approvedByPosition || ''}`])
-    styleRows.push('footer')
-    aoa.push(['Date:', '', 'Date:', '', 'Date:'])
-    styleRows.push('footer')
-    aoa.push(['Signature:', '', 'Signature:', '', 'Signature:'])
-    styleRows.push('footer')
-    aoa.push([`Names: ${counterHeader.preparedBy || ''}`, '', `Names: ${counterHeader.verifiedBy || ''}`, '', `Names: ${counterHeader.approvedBy || ''}`])
-    styleRows.push('footer')
-
-    const ws = XLSX.utils.aoa_to_sheet(aoa)
-    ws['!cols'] = [{ wch: 16 }, { wch: 21.88 }, { wch: 16 }, { wch: 15.13 }, { wch: 32.38 }]
-    aoa.forEach((row, r) => {
-      const kind = styleRows[r]
-      row.forEach((_, ci) => {
-        const addr = XLSX.utils.encode_cell({ r, c: ci })
-        if (!ws[addr]) return
-        if (kind === 'title') ws[addr].s = ci === 2 ? centerTitleStyle : titleStyle
-        else if (kind === 'header') ws[addr].s = tableHeaderStyle
-        else if (kind === 'data') ws[addr].s = dataStyle
-        else if (kind === 'total') ws[addr].s = totalStyle
-        else if (kind === 'footer') ws[addr].s = footerLabelStyle
-      })
-    })
-
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Counter verification report')
-    const draftWs = XLSX.utils.json_to_sheet(draftSheetRows())
-    XLSX.utils.book_append_sheet(wb, draftWs, 'All Vouchers Draft')
-    XLSX.writeFile(wb, `counter_verification_${fileName || 'export'}.xlsx`)
+  async function generateCounterReport() {
+    const { workbook, deductedCount } = buildCounterReportWorkbook({ cards, mapping, counterHeader })
+    if (deductedCount === 0) {
+      await alertUser('No vouchers currently have a deduction to include in the counter verification report.')
+      return
+    }
+    XLSX.writeFile(workbook, `counter_verification_${fileName || 'export'}.xlsx`)
   }
 
   function reset() {
-    localStorage.removeItem(STORAGE_KEY)
+    clearState(STORAGE_KEY)
     setStage('upload')
     setFileName('')
     setHeaders([])
@@ -771,37 +486,7 @@ export default function App() {
   return (
     <div className={showShell ? 'lg:flex min-h-screen' : ''}>
       {showShell && (
-        <aside className="hidden lg:flex flex-col w-60 shrink-0 border-r border-border bg-surface-1 p-4 gap-1 sticky top-0 h-screen">
-          <div className="flex items-center gap-2 mb-1">
-            <img src="/logo.png" alt="RSSB" className="w-9 h-9 shrink-0" />
-            <h1 className="text-sm font-semibold tracking-tight leading-tight">RSSB Counter<br/>Verification System</h1>
-          </div>
-          <p className="text-xs text-ink-muted mb-4">Claims verification &amp; fraud review</p>
-          <nav className="flex flex-col gap-1">
-            {TABS.map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setStage(key)}
-                aria-current={stage === key ? 'page' : undefined}
-                className={`text-sm text-left rounded-lg px-3 py-2 transition-colors ${
-                  stage === key ? 'bg-brand text-white font-medium' : 'text-ink-muted hover:bg-surface-2 hover:text-ink'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-          <div className="mt-auto flex flex-col gap-2">
-            {lastSaved && <span className="text-xs text-ink-muted">Saved {lastSaved.toLocaleTimeString()}</span>}
-            <button onClick={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))} className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface-1 hover:bg-surface-2 flex items-center justify-between">
-              <span>{theme === 'light' ? 'Light mode' : 'Dark mode'}</span>
-              <span>{theme === 'light' ? '☀️' : '🌙'}</span>
-            </button>
-            <button onClick={reset} className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface-1 hover:bg-surface-2">
-              New file
-            </button>
-          </div>
-        </aside>
+        <Sidebar stage={stage} setStage={setStage} lastSaved={lastSaved} theme={theme} setTheme={setTheme} onReset={reset} />
       )}
 
       <div className="flex-1 min-w-0">
@@ -887,6 +572,16 @@ export default function App() {
               </div>
             </div>
 
+            {storageWarning && (
+              <div className="bg-danger-light text-danger-dark text-sm px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-3">
+                <span>
+                  Your work is too large to auto-save in this browser (localStorage limit reached). Export your
+                  progress now so you don't lose it — auto-save will keep failing until the dataset is smaller.
+                </span>
+                <button onClick={() => setStorageWarning(false)} className="text-xs underline shrink-0">Dismiss</button>
+              </div>
+            )}
+
             <div className="sticky top-0 lg:top-0 z-10 bg-surface-0/95 backdrop-blur border-b border-border px-4 sm:px-6 lg:px-8 py-3">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
                 {[
@@ -937,12 +632,132 @@ export default function App() {
                       </div>
                     ))}
                   </div>
-                  <button
-                    onClick={() => setStage('verify')}
-                    className="bg-brand text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-brand-dark transition-colors"
-                  >
-                    Continue to verification
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={runCleaning}
+                      className="bg-brand text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-brand-dark transition-colors"
+                    >
+                      Clean &amp; normalize data →
+                    </button>
+                    <button
+                      onClick={() => setStage('verify')}
+                      className="text-sm text-ink-muted underline"
+                    >
+                      Skip cleaning, go straight to verification
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {stage === 'clean' && (
+                <div className="max-w-3xl">
+                  <div className="rounded-card border border-border bg-surface-1 p-5 sm:p-6 mb-5">
+                    <h2 className="text-base font-medium mb-1">Data cleaning &amp; normalization</h2>
+                    <p className="text-sm text-ink-muted">
+                      Every mapped column was run through a type-specific normalizer: dates to a single
+                      <code className="mx-1 px-1 rounded bg-surface-2 text-xs">YYYY-MM-DD</code>
+                      format (handling Excel serial dates, dd/mm/yyyy vs mm/dd/yyyy, and textual months),
+                      amounts to plain numbers (stripping currency symbols and reconciling US vs EU thousands/decimal
+                      separators), names to trimmed title case, sex to a single-letter code, and RAMA/affiliation
+                      numbers to the same stripped format used for hospital matching. Nothing is deleted — the
+                      original value for every cell that changed is kept and can be restored below.
+                    </p>
+                  </div>
+
+                  {!cleaningReport && (
+                    <p className="text-sm text-ink-muted">No cleaning has been run yet for this file.</p>
+                  )}
+
+                  {cleaningReport && (() => {
+                    const summary = summarizeChanges(cleaningReport, FIELD_DEFS)
+                    return (
+                      <>
+                        <div className="grid grid-cols-3 gap-3 mb-5">
+                          <div className="rounded-card border border-border bg-surface-1 px-3.5 py-2.5">
+                            <div className="text-[11px] text-ink-muted">Values normalized</div>
+                            <div className="text-lg font-medium">{summary.totalChanges}</div>
+                          </div>
+                          <div className={`rounded-card border px-3.5 py-2.5 ${summary.ambiguousCount > 0 ? 'border-warn bg-warn-light text-warn-dark' : 'border-border bg-surface-1'}`}>
+                            <div className="text-[11px] opacity-80">Ambiguous dates (best guess)</div>
+                            <div className="text-lg font-medium">{summary.ambiguousCount}</div>
+                          </div>
+                          <div className={`rounded-card border px-3.5 py-2.5 ${summary.unparsedCount > 0 ? 'border-danger bg-danger-light text-danger-dark' : 'border-border bg-surface-1'}`}>
+                            <div className="text-[11px] opacity-80">Couldn't parse (left as-is)</div>
+                            <div className="text-lg font-medium">{summary.unparsedCount}</div>
+                          </div>
+                        </div>
+
+                        {summary.byField.length > 0 && (
+                          <div className="rounded-card border border-border bg-surface-1 p-4 mb-5">
+                            <h3 className="text-xs font-medium text-ink-muted uppercase tracking-wide mb-3">By field</h3>
+                            <div className="flex flex-col gap-2">
+                              {summary.byField.map(f => (
+                                <div key={f.field} className="flex items-center justify-between text-sm">
+                                  <span>{f.label} <span className="text-ink-muted">({f.type})</span></span>
+                                  <span className="text-ink-muted">
+                                    {f.changed} normalized
+                                    {f.ambiguous > 0 && <span className="text-warn-dark"> · {f.ambiguous} ambiguous</span>}
+                                    {f.unparsed > 0 && <span className="text-danger-dark"> · {f.unparsed} unparsed</span>}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {cleaningReport.length > 0 && (
+                          <div className="rounded-card border border-border overflow-hidden mb-5">
+                            <table className="w-full text-sm bg-surface-1">
+                              <thead>
+                                <tr className="text-xs text-ink-muted text-left">
+                                  <th className="px-3 py-2 font-medium">Field</th>
+                                  <th className="px-3 py-2 font-medium">Original</th>
+                                  <th className="px-3 py-2 font-medium">Normalized</th>
+                                  <th className="px-3 py-2 font-medium"></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {cleaningReport.slice(0, 100).map((c, i) => (
+                                  <tr key={i} className="border-t border-border">
+                                    <td className="px-3 py-2">{FIELD_DEFS.find(f => f.key === c.field)?.label || c.field}</td>
+                                    <td className="px-3 py-2 text-ink-muted">{String(c.original)}</td>
+                                    <td className="px-3 py-2">{c.unparsed ? <span className="text-danger-dark">left as-is</span> : String(c.cleaned)}</td>
+                                    <td className="px-3 py-2">
+                                      {c.ambiguous && <span className="text-xs px-1.5 py-0.5 rounded bg-warn-light text-warn-dark">best guess</span>}
+                                      {c.unparsed && <span className="text-xs px-1.5 py-0.5 rounded bg-danger-light text-danger-dark">unparsed</span>}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            {cleaningReport.length > 100 && (
+                              <div className="text-xs text-ink-muted px-3 py-2 border-t border-border">
+                                Showing the first 100 of {cleaningReport.length} changes.
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {cleaningReport.length === 0 && (
+                          <p className="text-sm text-ink-muted mb-5">Every mapped value was already in a clean, consistent format — nothing needed changing.</p>
+                        )}
+                      </>
+                    )
+                  })()}
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setStage('verify')}
+                      className="bg-brand text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-brand-dark transition-colors"
+                    >
+                      Looks good, continue to verification
+                    </button>
+                    {cleaningReport && cleaningReport.length > 0 && (
+                      <button onClick={undoCleaning} className="text-sm border border-border rounded-lg px-3.5 py-2 hover:bg-surface-2">
+                        Revert to original values
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1324,10 +1139,11 @@ export default function App() {
                           {MATCH_CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
                         </select>
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             const targets = cards.filter(c => ['fraud_risk', 'orphan'].includes(matchCategoryOf(c.id)) && !c.classifications?.fraud)
-                            if (!targets.length) { alert('No unflagged Fraud Risk or Orphan records to send.'); return }
-                            if (!confirm(`Send ${targets.length} Fraud Risk / Orphan voucher(s) to Fraud Review? Their full RSSB-payable amount will be withheld (approved amount set to 0).`)) return
+                            if (!targets.length) { await alertUser('No unflagged Fraud Risk or Orphan records to send.'); return }
+                            const proceed = await confirmUser(`Send ${targets.length} Fraud Risk / Orphan voucher(s) to Fraud Review? Their full RSSB-payable amount will be withheld (approved amount set to 0).`)
+                            if (!proceed) return
                             targets.forEach(c => sendToFraudReview(c, CATEGORY_LABELS[matchCategoryOf(c.id)]))
                           }}
                           className="ml-auto text-sm rounded-lg px-3.5 py-1.5 bg-danger text-white hover:bg-danger-dark transition-colors"
@@ -1444,157 +1260,29 @@ export default function App() {
               )}
 
               {stage === 'fraud' && (
-                <div>
-                  <p className="text-sm text-ink-muted mb-2">
-                    All vouchers flagged as fraud activity. Adjust deduction, comment, prescription date, and facility here before generating the report.
-                  </p>
-                  <p className="text-xs text-ink-muted mb-4 bg-surface-2 border border-border rounded-lg px-3 py-2 max-w-3xl">
-                    Reminder: a deduction is normally calculated against 85% of the total cost, or the mapped
-                    insurance co-payment amount when available. Vouchers sent here as confirmed Fraud Risk or
-                    Ghost Patient have that entire basis withheld — the approved amount becomes 0. Adjust the
-                    deduction field manually if only a partial amount should be withheld instead.
-                  </p>
-                  <div className="overflow-x-auto rounded-card border border-border mb-4">
-                    <table className="w-full text-sm bg-surface-1">
-                      <thead>
-                        <tr className="text-xs text-ink-muted text-left">
-                          <th className="px-3 py-2 font-medium">Voucher</th>
-                          <th className="px-3 py-2 font-medium">Patient</th>
-                          <th className="px-3 py-2 font-medium">Amount</th>
-                          <th className="px-3 py-2 font-medium">Deduction</th>
-                          <th className="px-3 py-2 font-medium">Prescription date</th>
-                          <th className="px-3 py-2 font-medium">Health facility</th>
-                          <th className="px-3 py-2 font-medium">Comment</th>
-                          <th className="px-3 py-2 font-medium">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {cards.filter(c => c.classifications?.fraud).map(c => (
-                          <tr key={c.id} className={`border-t border-border align-top ${needsFraudReview(c) ? 'bg-danger-light/40' : ''}`}>
-                            <td className="px-3 py-2">{voucherOf(c) || '—'}</td>
-                            <td className="px-3 py-2">{mappedValue(c, 'patient_name') || '—'}</td>
-                            <td className="px-3 py-2">{originalAmount(c)?.toLocaleString() ?? '—'}</td>
-                            <td className="px-3 py-2">
-                              <input type="number" min="0" value={c.deduction || ''} onChange={e => updateCard(c.id, { deduction: e.target.value })}
-                                className="w-24 border border-border rounded-lg px-2 py-1 text-sm bg-surface-2 text-right" />
-                            </td>
-                            <td className="px-3 py-2">
-                              <input type="date" value={c.prescriptionDate} onChange={e => updateCard(c.id, { prescriptionDate: e.target.value })}
-                                className={`border rounded-lg px-2 py-1 text-sm bg-surface-2 ${!c.prescriptionDate ? 'border-danger' : 'border-border'}`} />
-                            </td>
-                            <td className="px-3 py-2">
-                              <input type="text" value={c.facilityOverride} placeholder={mappedValue(c, 'facility_name') || 'Facility'} onChange={e => updateCard(c.id, { facilityOverride: e.target.value })}
-                                className={`min-w-[150px] border rounded-lg px-2 py-1 text-sm bg-surface-2 ${!facilityOf(c) ? 'border-danger' : 'border-border'}`} />
-                            </td>
-                            <td className="px-3 py-2">
-                              <input type="text" value={c.comment} onChange={e => updateCard(c.id, { comment: e.target.value })}
-                                className="min-w-[180px] border border-border rounded-lg px-2 py-1 text-sm bg-surface-2" />
-                            </td>
-                            <td className="px-3 py-2">
-                              {needsFraudReview(c) ? (
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-danger-light text-danger-dark">Needs review</span>
-                              ) : (
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-brand-light text-brand-dark">Ready</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                        {cards.filter(c => c.classifications?.fraud).length === 0 && (
-                          <tr><td colSpan={8} className="px-3 py-6 text-center text-ink-muted text-sm">No vouchers flagged as fraud activity yet.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  <button onClick={generateFraudReport} className="text-sm rounded-lg px-4 py-2 bg-danger text-white hover:bg-danger-dark transition-colors">
-                    Generate Anti Fraud Report
-                  </button>
-                </div>
+                <FraudReviewView
+                  cards={cards}
+                  updateCard={updateCard}
+                  needsFraudReview={needsFraudReview}
+                  voucherOf={voucherOf}
+                  mappedValue={mappedValue}
+                  originalAmount={originalAmount}
+                  facilityOf={facilityOf}
+                  generateFraudReport={generateFraudReport}
+                />
               )}
 
               {stage === 'counter' && (
-                <div>
-                  <p className="text-sm text-ink-muted mb-4">
-                    Review every voucher that currently has a deduction, adjust the amount or explanation as a final check, then generate the counter verification report.
-                  </p>
-
-                  <div className="rounded-card border border-border bg-surface-1 p-4 mb-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                    {[
-                      ['code', 'Code / Pharmacy', 'e.g. 20331037'],
-                      ['pharmacyName', 'Pharmacy / facility name', 'e.g. NYARUGENGE - PHARMACIE NEZA'],
-                      ['period', 'Period', 'e.g. DECEMBER 2024'],
-                      ['tin', 'TIN', 'e.g. 102808467']
-                    ].map(([key, label, placeholder]) => (
-                      <div key={key}>
-                        <label className="text-xs text-ink-muted block mb-1">{label}</label>
-                        <input value={counterHeader[key]} onChange={e => setCounterHeader(h => ({ ...h, [key]: e.target.value }))}
-                          className="w-full border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2" placeholder={placeholder} />
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="rounded-card border border-border bg-surface-1 p-4 mb-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {[
-                      ['preparedBy', 'preparedByPosition', 'Prepared by'],
-                      ['verifiedBy', 'verifiedByPosition', 'Verified by'],
-                      ['approvedBy', 'approvedByPosition', 'Approved by']
-                    ].map(([key, posKey, label]) => (
-                      <div key={key} className="flex flex-col gap-2">
-                        <div>
-                          <label className="text-xs text-ink-muted block mb-1">{label}</label>
-                          <input value={counterHeader[key]} onChange={e => setCounterHeader(h => ({ ...h, [key]: e.target.value }))}
-                            className="w-full border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2" placeholder="Full name" />
-                        </div>
-                        <div>
-                          <label className="text-xs text-ink-muted block mb-1">Position / title</label>
-                          <input value={counterHeader[posKey]} onChange={e => setCounterHeader(h => ({ ...h, [posKey]: e.target.value }))}
-                            className="w-full border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2" placeholder="e.g. Pharmacist in Charge" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="overflow-x-auto rounded-card border border-border mb-4">
-                    <table className="w-full text-sm bg-surface-1">
-                      <thead>
-                        <tr className="text-xs text-ink-muted text-left">
-                          <th className="px-3 py-2 font-medium">NO</th>
-                          <th className="px-3 py-2 font-medium">N° BEN. / Voucher</th>
-                          <th className="px-3 py-2 font-medium">RAMA Number</th>
-                          <th className="px-3 py-2 font-medium">Original amount</th>
-                          <th className="px-3 py-2 font-medium">Deduction (adjustable)</th>
-                          <th className="px-3 py-2 font-medium">Difference</th>
-                          <th className="px-3 py-2 font-medium">Explanation of deduction</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {cards.filter(c => (parseFloat(c.deduction) || 0) > 0).map((c, i) => (
-                          <tr key={c.id} className="border-t border-border align-top">
-                            <td className="px-3 py-2">{i + 1}</td>
-                            <td className="px-3 py-2">{voucherOf(c) || '—'}</td>
-                            <td className="px-3 py-2">{mappedValue(c, 'rama_number') || '—'}</td>
-                            <td className="px-3 py-2">{originalAmount(c)?.toLocaleString() ?? '—'}</td>
-                            <td className="px-3 py-2">
-                              <input type="number" min="0" value={c.deduction || ''} onChange={e => updateCard(c.id, { deduction: e.target.value })}
-                                className="w-24 border border-border rounded-lg px-2 py-1 text-sm bg-surface-2 text-right" />
-                            </td>
-                            <td className="px-3 py-2 text-danger">-{(parseFloat(c.deduction) || 0).toLocaleString()}</td>
-                            <td className="px-3 py-2">
-                              <input type="text" value={c.explanation} placeholder={c.comment || 'e.g. Different reception signature'} onChange={e => updateCard(c.id, { explanation: e.target.value })}
-                                className="w-full min-w-[220px] border border-border rounded-lg px-2 py-1 text-sm bg-surface-2" />
-                            </td>
-                          </tr>
-                        ))}
-                        {cards.filter(c => (parseFloat(c.deduction) || 0) > 0).length === 0 && (
-                          <tr><td colSpan={7} className="px-3 py-6 text-center text-ink-muted text-sm">No vouchers currently have a deduction.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <button onClick={generateCounterReport} className="text-sm rounded-lg px-4 py-2 bg-brand text-white hover:bg-brand-dark transition-colors">
-                    Generate counter verification report
-                  </button>
-                </div>
+                <CounterVerificationView
+                  cards={cards}
+                  updateCard={updateCard}
+                  counterHeader={counterHeader}
+                  setCounterHeader={setCounterHeader}
+                  voucherOf={voucherOf}
+                  mappedValue={mappedValue}
+                  originalAmount={originalAmount}
+                  generateCounterReport={generateCounterReport}
+                />
               )}
             </main>
           </>
