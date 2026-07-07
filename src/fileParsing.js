@@ -4,28 +4,51 @@ export function normalizeKey(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
-// Greedy best-guess column mapping: for each field definition, pick the
-// unused header whose normalized text contains the longest matching guess.
-// Longest-guess-wins avoids e.g. "date" claiming a column that "prescriptiondate"
-// should get.
+// Whether a guess token counts as matching a normalized header. Longer
+// guesses (4+ chars) are specific enough to use loose substring matching
+// (e.g. 'dispensingdate' inside 'dispensingdatecolumn'). Very short guesses
+// like 'no' or 'om' exist to catch a header that's literally just "No" or
+// "N0" — but as a substring match they'd also fire on "Notes", "Comments",
+// or any other unrelated word that happens to contain those two letters, so
+// they're required to match the header exactly instead.
+function guessMatches(normalizedHeader, guess) {
+  return guess.length <= 3 ? normalizedHeader === guess : normalizedHeader.includes(guess)
+}
+
+// Best-guess column mapping. Every (field, header) pair that matches gets a
+// score (the length of the longest matching guess), and pairs are assigned
+// strongest-match-first across the WHOLE sheet — not by walking fields in
+// FIELD_DEFS order and letting each grab its best header as it goes. That
+// field-order approach has a real failure mode: visit_date's guess list
+// includes the generic 'date', so if it's processed before dispensing_date,
+// it can claim a "Dispensing Date" column for itself before dispensing_date
+// (whose guesses are far more specific, e.g. 'dispensingdate') ever gets a
+// turn — common in files that have only a dispensing-date column and no
+// separate prescription-date column. Scoring globally means the more
+// specific match always wins the header, regardless of field order.
 export function autoMapHeaders(headers, fieldDefs) {
-  const mapping = {}
-  const usedHeaders = new Set()
+  const candidates = []
   fieldDefs.forEach(f => {
-    let best = ''
-    let bestScore = 0
     headers.forEach(h => {
-      if (usedHeaders.has(h)) return
       const nh = normalizeKey(h)
+      let bestGuessLen = 0
       f.guesses.forEach(g => {
-        if (nh.includes(g) && g.length > bestScore) {
-          bestScore = g.length
-          best = h
-        }
+        if (guessMatches(nh, g) && g.length > bestGuessLen) bestGuessLen = g.length
       })
+      if (bestGuessLen > 0) candidates.push({ field: f.key, header: h, score: bestGuessLen })
     })
-    mapping[f.key] = best
-    if (best) usedHeaders.add(best)
+  })
+  candidates.sort((a, b) => b.score - a.score)
+
+  const mapping = {}
+  fieldDefs.forEach(f => { mapping[f.key] = '' })
+  const usedHeaders = new Set()
+  const usedFields = new Set()
+  candidates.forEach(({ field, header, score }) => {
+    if (usedFields.has(field) || usedHeaders.has(header)) return
+    mapping[field] = header
+    usedFields.add(field)
+    usedHeaders.add(header)
   })
   return mapping
 }
