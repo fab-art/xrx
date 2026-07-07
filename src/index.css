@@ -37,3 +37,31 @@
     outline-offset: 1px;
   }
 }
+
+.skip-link {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -150%);
+  z-index: 100;
+  background: var(--surface-1);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 0 0 8px 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  transition: transform 150ms ease-out;
+}
+
+.skip-link:focus {
+  transform: translate(-50%, 0%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

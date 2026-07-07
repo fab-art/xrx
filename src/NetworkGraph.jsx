@@ -148,19 +148,19 @@ export default function NetworkGraph({ cards, mapping, matchResults, matchOverri
               </div>
             </div>
             <div>
-              <label className="text-xs font-medium text-ink-muted uppercase tracking-wide block mb-1">Min vouchers per node</label>
-              <input type="number" min="1" value={minVoucherCount} onChange={e => setMinVoucherCount(e.target.value)}
+              <label htmlFor="net-min-vouchers" className="text-xs font-medium text-ink-muted uppercase tracking-wide block mb-1">Min vouchers per node</label>
+              <input id="net-min-vouchers" type="number" min="1" value={minVoucherCount} onChange={e => setMinVoucherCount(e.target.value)}
                 className="w-full border border-border rounded-lg px-2 py-1 text-sm bg-surface-2" />
               <p className="text-xs text-ink-muted mt-1">Raise this to isolate high-volume doctors, patients, or facilities.</p>
             </div>
             <div>
-              <label className="text-xs font-medium text-ink-muted uppercase tracking-wide block mb-1">Min total cost per node</label>
-              <input type="number" min="0" value={minTotalCost} onChange={e => setMinTotalCost(e.target.value)}
+              <label htmlFor="net-min-cost" className="text-xs font-medium text-ink-muted uppercase tracking-wide block mb-1">Min total cost per node</label>
+              <input id="net-min-cost" type="number" min="0" value={minTotalCost} onChange={e => setMinTotalCost(e.target.value)}
                 className="w-full border border-border rounded-lg px-2 py-1 text-sm bg-surface-2" />
             </div>
             <div>
-              <label className="text-xs font-medium text-ink-muted uppercase tracking-wide block mb-1">Search</label>
-              <input type="text" placeholder="Doctor, patient, or facility..." value={search} onChange={e => setSearch(e.target.value)}
+              <label htmlFor="net-search" className="text-xs font-medium text-ink-muted uppercase tracking-wide block mb-1">Search</label>
+              <input id="net-search" type="text" placeholder="Doctor, patient, or facility..." value={search} onChange={e => setSearch(e.target.value)}
                 className="w-full border border-border rounded-lg px-2 py-1 text-sm bg-surface-2" />
             </div>
             <div className="text-xs text-ink-muted border-t border-border pt-3">
