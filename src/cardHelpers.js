@@ -43,6 +43,10 @@ export function dateOf(card, mapping) {
   return toDateValue(mappedValue(card, 'visit_date', mapping))
 }
 
+export function dispensingDateOf(card, mapping) {
+  return toDateValue(mappedValue(card, 'dispensing_date', mapping))
+}
+
 export function originalAmount(card, mapping) {
   const v = parseFloat(mappedValue(card, 'amount', mapping))
   return isNaN(v) ? null : v
