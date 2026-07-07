@@ -24,7 +24,7 @@ import {
 import { loadState, saveState, clearState } from './utils/storage'
 import { autoMapHeaders, parseSpreadsheetFile } from './fileParsing'
 import * as CH from './cardHelpers'
-import { cleanCards, revertCleaning, summarizeChanges } from './dataCleaning'
+import { cleanCards, revertCleaning, summarizeChanges, dispensingDateHint } from './dataCleaning'
 import {
   buildVerifiedWorkbook, buildFraudReportWorkbook,
   buildCounterReportWorkbook, buildMatchReportWorkbook
@@ -150,24 +150,20 @@ export default function App() {
       setMapping(guessedMapping)
       const dispensingHeader = guessedMapping.dispensing_date
       setCards(
-        json.map((row, i) => {
+        json.map((row, i) => ({
+          id: i,
+          row,
+          status: 'pending', // pending | verified
+          comment: '',
+          deduction: 0,
           // Pre-fill the prescription date with the dispensing date as a hint —
           // it's usually the same or very close, and this saves re-typing it by
           // hand; reviewers can still edit it if it's wrong.
-          const dispensed = dispensingHeader ? CH.toDateValue(row[dispensingHeader]) : null
-          const hintDate = dispensed ? CH.formatDateForInput(dispensed) : ''
-          return {
-            id: i,
-            row,
-            status: 'pending', // pending | verified
-            comment: '',
-            deduction: 0,
-            prescriptionDate: hintDate,
-            facilityOverride: '',
-            explanation: '',
-            classifications: emptyClassifications()
-          }
-        })
+          prescriptionDate: dispensingDateHint(row, dispensingHeader),
+          facilityOverride: '',
+          explanation: '',
+          classifications: emptyClassifications()
+        }))
       )
       setCurrentIndex(0)
       setStage('summary')
@@ -1009,15 +1005,17 @@ export default function App() {
                       <span className="text-xs text-ink-muted">to</span>
                       <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} aria-label="Date to" className="text-xs border border-border rounded-lg px-2 py-1.5 bg-surface-1" />
                     </div>
-                    <select value={sortBy} onChange={e => setSortBy(e.target.value)} aria-label="Sort by" className="text-xs border border-border rounded-lg px-2.5 py-1.5 bg-surface-1">
-                      <option value="none">Sort: none</option>
+                    <select value={sortBy} onChange={e => setSortBy(e.target.value)} disabled={advFilter === 'repeated'} aria-label="Sort by"
+                      title={advFilter === 'repeated' ? 'Repeated records are always grouped by patient name' : undefined}
+                      className="text-xs border border-border rounded-lg px-2.5 py-1.5 bg-surface-1 disabled:opacity-40">
+                      <option value="none">{advFilter === 'repeated' ? 'Sort: grouped by name' : 'Sort: none'}</option>
                       <option value="facility">Sort by facility</option>
                       <option value="doctor">Sort by doctor</option>
                       <option value="voucher">Sort by voucher no</option>
                       <option value="date">Sort by date</option>
                       <option value="amount">Sort by claim amount</option>
                     </select>
-                    <button onClick={() => setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))} disabled={sortBy === 'none'} aria-label="Toggle sort direction"
+                    <button onClick={() => setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))} disabled={sortBy === 'none' || advFilter === 'repeated'} aria-label="Toggle sort direction"
                       className="text-xs border border-border rounded-lg px-2.5 py-1.5 bg-surface-1 hover:bg-surface-2 disabled:opacity-40">
                       {sortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
                     </button>
