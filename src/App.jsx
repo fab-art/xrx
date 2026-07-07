@@ -177,6 +177,22 @@ export default function App() {
     setMapping(m => ({ ...m, [fieldKey]: header }))
   }
 
+  // The auto-guessed mapping used at upload time can be wrong or incomplete
+  // (real-world headers vary a lot between facilities), so the initial
+  // prescription-date hint in handleFile may never have been set. This
+  // re-applies the hint using whatever mapping the user actually confirmed
+  // on the "Map columns" screen, filling in only vouchers that still have no
+  // prescription date — it never overwrites a value someone already typed in.
+  function backfillPrescriptionDateHints(cardsList, mappingToUse) {
+    const dispensingHeader = mappingToUse.dispensing_date
+    if (!dispensingHeader) return cardsList
+    return cardsList.map(c => {
+      if (c.prescriptionDate) return c
+      const hint = dispensingDateHint(c.row, dispensingHeader)
+      return hint ? { ...c, prescriptionDate: hint } : c
+    })
+  }
+
   async function handleHospitalFiles(e) {
     const files = Array.from(e.target.files || [])
     if (!files.length) return
@@ -303,7 +319,7 @@ export default function App() {
 
   function runCleaning() {
     const { cleanedCards, changes } = cleanCards(cards, mapping)
-    setCards(cleanedCards)
+    setCards(backfillPrescriptionDateHints(cleanedCards, mapping))
     setCleaningReport(changes)
     setStage('clean')
   }
@@ -685,7 +701,7 @@ export default function App() {
                       Clean &amp; normalize data →
                     </button>
                     <button
-                      onClick={() => setStage('verify')}
+                      onClick={() => { setCards(cs => backfillPrescriptionDateHints(cs, mapping)); setStage('verify') }}
                       className="text-sm text-ink-muted underline"
                     >
                       Skip cleaning, go straight to verification
