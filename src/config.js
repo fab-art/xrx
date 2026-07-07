@@ -41,6 +41,7 @@ export const HOSPITAL_FIELD_DEFS = [
 export const MATCH_CATEGORIES = ['clean', 'review', 'fraud_risk', 'orphan']
 
 export const TABS = [
+  ['summary', 'Summary'],
   ['map', 'Map columns'],
   ['clean', 'Clean Data'],
   ['verify', 'Verify'],

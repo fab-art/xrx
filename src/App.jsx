@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, Fragment, lazy, Suspense } from 'react'
 import * as XLSX from 'xlsx-js-style'
 import {
   normalizeId,
@@ -9,10 +9,12 @@ import {
   matchRecords,
   CATEGORY_LABELS
 } from './matching'
-import NetworkGraph from './NetworkGraph'
+const NetworkGraph = lazy(() => import('./NetworkGraph'))
 import Sidebar from './components/Sidebar'
+import SummaryView from './components/SummaryView'
 import FraudReviewView from './components/FraudReviewView'
 import CounterVerificationView from './components/CounterVerificationView'
+import VoucherRowDetail from './components/VoucherRowDetail'
 import { useDialog } from './components/Dialog'
 import {
   STORAGE_KEY, THEME_KEY, SAVE_DEBOUNCE_MS,
@@ -64,6 +66,7 @@ export default function App() {
   const [storageWarning, setStorageWarning] = useState(false)
   const [autoDetected, setAutoDetected] = useState(0)
   const [cleaningReport, setCleaningReport] = useState(null)
+  const [expandedIds, setExpandedIds] = useState(() => new Set())
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem(THEME_KEY) || 'light' } catch { return 'light' }
   })
@@ -159,7 +162,7 @@ export default function App() {
         }))
       )
       setCurrentIndex(0)
-      setStage('map')
+      setStage('summary')
     } catch (err) {
       console.error(err)
       await alertUser(`Couldn't read "${file.name}". Please make sure it's a valid Excel or CSV file.`)
@@ -262,6 +265,15 @@ export default function App() {
     setCards(cs => cs.map(c => (c.id === id ? { ...c, ...patch } : c)))
   }
 
+  function toggleExpanded(id) {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   function toggleClassification(id, key) {
     setCards(cs =>
       cs.map(c =>
@@ -279,6 +291,7 @@ export default function App() {
   const doctorOf = card => CH.doctorOf(card, mapping)
   const voucherOf = card => CH.voucherOf(card, mapping)
   const dateOf = card => CH.dateOf(card, mapping)
+  const dispensingDateOf = card => CH.dispensingDateOf(card, mapping)
   const originalAmount = card => CH.originalAmount(card, mapping)
   const approvedAmount = card => CH.approvedAmount(card, mapping)
   const fraudBasisAmount = card => CH.fraudBasisAmount(card, mapping)
@@ -358,6 +371,19 @@ export default function App() {
         else if (sortBy === 'amount') { av = originalAmount(a) || 0; bv = originalAmount(b) || 0 }
         if (typeof av === 'string') return av.localeCompare(bv) * dir
         return (av - bv) * dir
+      })
+    }
+    // When viewing repeated records, always group same-patient vouchers together
+    // (by name, then chronologically) regardless of the chosen sort, so multiple
+    // vouchers for one person are easy to find and compare side by side.
+    if (advFilter === 'repeated') {
+      list = [...list].sort((a, b) => {
+        const an = String(mappedValue(a, 'patient_name') || '').trim().toLowerCase()
+        const bn = String(mappedValue(b, 'patient_name') || '').trim().toLowerCase()
+        if (an !== bn) return an.localeCompare(bn)
+        const ad = dateOf(a)?.getTime() || 0
+        const bd = dateOf(b)?.getTime() || 0
+        return ad - bd
       })
     }
     return list
@@ -485,6 +511,7 @@ export default function App() {
 
   return (
     <div className={showShell ? 'lg:flex min-h-screen' : ''}>
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       {showShell && (
         <Sidebar stage={stage} setStage={setStage} lastSaved={lastSaved} theme={theme} setTheme={setTheme} onReset={reset} />
       )}
@@ -573,10 +600,11 @@ export default function App() {
             </div>
 
             {storageWarning && (
-              <div className="bg-danger-light text-danger-dark text-sm px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-3">
+              <div role="alert" aria-live="assertive" className="bg-danger-light text-danger-dark text-sm px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-3">
                 <span>
-                  Your work is too large to auto-save in this browser (localStorage limit reached). Export your
-                  progress now so you don't lose it — auto-save will keep failing until the dataset is smaller.
+                  Your work couldn't be auto-saved on this device. Export your progress now so you don't lose
+                  it — auto-save will keep failing until this is resolved (try freeing up device storage or
+                  using a different browser).
                 </span>
                 <button onClick={() => setStorageWarning(false)} className="text-xs underline shrink-0">Dismiss</button>
               </div>
@@ -600,7 +628,20 @@ export default function App() {
               </div>
             </div>
 
-            <main className="px-4 sm:px-6 lg:px-8 py-6">
+            <main id="main-content" tabIndex={-1} className="px-4 sm:px-6 lg:px-8 py-6">
+              {stage === 'summary' && (
+                <SummaryView
+                  cards={cards}
+                  headers={headers}
+                  mapping={mapping}
+                  fileName={fileName}
+                  mappedValue={mappedValue}
+                  originalAmount={originalAmount}
+                  dateOf={dateOf}
+                  onContinue={() => setStage('map')}
+                />
+              )}
+
               {stage === 'map' && (
                 <div className="rounded-card border border-border bg-surface-1 p-5 sm:p-6 max-w-2xl">
                   <div className={`rounded-lg px-3.5 py-2.5 mb-4 text-sm flex items-center justify-between gap-3 ${autoDetected > 0 ? 'bg-brand-light text-brand-dark' : 'bg-warn-light text-warn-dark'}`}>
@@ -989,6 +1030,7 @@ export default function App() {
                           <th className="px-3 py-2 font-medium">#</th>
                           <th className="px-3 py-2 font-medium">Voucher No</th>
                           <th className="px-3 py-2 font-medium">Patient</th>
+                          <th className="px-3 py-2 font-medium">Dispensed</th>
                           <th className="px-3 py-2 font-medium">Amount</th>
                           <th className="px-3 py-2 font-medium">Approved</th>
                           <th className="px-3 py-2 font-medium">Status</th>
@@ -997,28 +1039,64 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredCards.map(c => (
-                          <tr key={c.id} className="border-t border-border">
-                            <td className="px-3 py-2">{c.id + 1}</td>
-                            <td className="px-3 py-2">{voucherOf(c) || '—'}</td>
-                            <td className="px-3 py-2">{mappedValue(c, 'patient_name') || '—'}</td>
-                            <td className="px-3 py-2">{originalAmount(c)?.toLocaleString() ?? '—'}</td>
-                            <td className="px-3 py-2">{approvedAmount(c)?.toLocaleString() ?? '—'}</td>
-                            <td className="px-3 py-2">
-                              <span className={`text-xs capitalize px-2 py-0.5 rounded-full ${c.status === 'verified' ? 'bg-brand-light text-brand-dark' : 'bg-warn-light text-warn-dark'}`}>{c.status}</span>
-                            </td>
-                            <td className="px-3 py-2 space-x-1">
-                              {CLASSIFICATION_DEFS.filter(cl => c.classifications?.[cl.key]).map(cl => (
-                                <span key={cl.key} className={`text-xs px-2 py-0.5 rounded-full ${cl.key === 'fraud' ? 'bg-danger-light text-danger-dark' : 'bg-surface-2 border border-border'}`}>{cl.label}</span>
-                              ))}
-                              {needsFraudReview(c) && <span className="text-xs px-2 py-0.5 rounded-full bg-danger-light text-danger-dark">Needs review</span>}
-                              {repeatedIds.has(c.id) && <span className="text-xs px-2 py-0.5 rounded-full bg-warn-light text-warn-dark">Repeat</span>}
-                            </td>
-                            <td className="px-3 py-2">
-                              <button onClick={() => { setCurrentIndex(cards.findIndex(x => x.id === c.id)); setStage('verify') }} className="text-xs border border-border rounded-lg px-2.5 py-1 hover:bg-surface-2">Open</button>
-                            </td>
-                          </tr>
-                        ))}
+                        {filteredCards.map(c => {
+                          const isOpen = expandedIds.has(c.id)
+                          return (
+                            <Fragment key={c.id}>
+                              <tr
+                                onClick={() => toggleExpanded(c.id)}
+                                aria-expanded={isOpen}
+                                className="border-t border-border cursor-pointer hover:bg-surface-2/60 transition-colors"
+                              >
+                                <td className="px-3 py-2">{c.id + 1}</td>
+                                <td className="px-3 py-2">{voucherOf(c) || '—'}</td>
+                                <td className="px-3 py-2">{mappedValue(c, 'patient_name') || '—'}</td>
+                                <td className="px-3 py-2">{dispensingDateOf(c)?.toLocaleDateString() ?? '—'}</td>
+                                <td className="px-3 py-2">{originalAmount(c)?.toLocaleString() ?? '—'}</td>
+                                <td className="px-3 py-2">{approvedAmount(c)?.toLocaleString() ?? '—'}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`text-xs capitalize px-2 py-0.5 rounded-full ${c.status === 'verified' ? 'bg-brand-light text-brand-dark' : 'bg-warn-light text-warn-dark'}`}>{c.status}</span>
+                                </td>
+                                <td className="px-3 py-2 space-x-1">
+                                  {CLASSIFICATION_DEFS.filter(cl => c.classifications?.[cl.key]).map(cl => (
+                                    <span key={cl.key} className={`text-xs px-2 py-0.5 rounded-full ${cl.key === 'fraud' ? 'bg-danger-light text-danger-dark' : 'bg-surface-2 border border-border'}`}>{cl.label}</span>
+                                  ))}
+                                  {needsFraudReview(c) && <span className="text-xs px-2 py-0.5 rounded-full bg-danger-light text-danger-dark">Needs review</span>}
+                                  {repeatedIds.has(c.id) && <span className="text-xs px-2 py-0.5 rounded-full bg-warn-light text-warn-dark">Repeat</span>}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <button
+                                    onClick={e => { e.stopPropagation(); toggleExpanded(c.id) }}
+                                    aria-expanded={isOpen}
+                                    aria-label={isOpen ? 'Collapse voucher details' : 'Expand voucher details'}
+                                    className="w-7 h-7 flex items-center justify-center rounded-lg border border-border hover:bg-surface-2 text-ink-muted"
+                                  >
+                                    <span className={`inline-block transition-transform duration-150 ${isOpen ? 'rotate-90' : ''}`}>›</span>
+                                  </button>
+                                </td>
+                              </tr>
+                              {isOpen && (
+                                <tr className="border-t border-border bg-surface-0">
+                                  <td colSpan={9} className="px-4 py-4">
+                                    <VoucherRowDetail
+                                      card={c}
+                                      headers={headers}
+                                      mapping={mapping}
+                                      updateCard={updateCard}
+                                      toggleClassification={toggleClassification}
+                                      needsFraudReview={needsFraudReview}
+                                      facilityOf={facilityOf}
+                                      mappedValue={mappedValue}
+                                      originalAmount={originalAmount}
+                                      approvedAmount={approvedAmount}
+                                      onOpenFullView={() => { setCurrentIndex(cards.findIndex(x => x.id === c.id)); setStage('verify') }}
+                                    />
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1255,7 +1333,9 @@ export default function App() {
                     are Fraud Risk or Orphan are outlined in red — useful for spotting doctor-patient pairs or
                     facility patterns worth a closer look. Drag to pan, scroll to zoom, click any node for detail.
                   </p>
-                  <NetworkGraph cards={cards} mapping={mapping} matchResults={matchResults} matchOverrides={matchOverrides} />
+                  <Suspense fallback={<div className="rounded-card border border-border bg-surface-1 p-8 text-sm text-ink-muted text-center">Loading network analysis…</div>}>
+                    <NetworkGraph cards={cards} mapping={mapping} matchResults={matchResults} matchOverrides={matchOverrides} />
+                  </Suspense>
                 </div>
               )}
 
