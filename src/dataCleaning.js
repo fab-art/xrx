@@ -94,6 +94,19 @@ export function normalizeDateValue(raw) {
   return { value: iso, changed: String(raw).trim() !== iso, ambiguous }
 }
 
+// Suggests an initial value for a voucher's editable prescription-date field,
+// using its dispensing date as a starting point (the two are usually the same
+// day or very close). Runs on raw, not-yet-cleaned spreadsheet values, so it
+// goes through the same parser as the Clean Data step rather than a naive
+// `new Date(...)` — that keeps it safe against Excel serial-number dates and
+// ambiguous dd/mm vs mm/dd text. Returns '' (rather than a garbage string)
+// whenever the cell can't be confidently parsed as a date.
+export function dispensingDateHint(row, dispensingHeader) {
+  if (!dispensingHeader) return ''
+  const result = normalizeDateValue(row[dispensingHeader])
+  return result.unparsed ? '' : result.value
+}
+
 // Handles both US-style (1,234.56) and EU-style (1.234,56) thousands/decimal
 // separators, plus currency symbols/codes (RWF, Frw, $, etc.), rather than
 // assuming one fixed format.

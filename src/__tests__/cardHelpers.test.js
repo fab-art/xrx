@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   mappedValue, facilityOf, voucherOf, originalAmount, approvedAmount,
-  fraudBasisAmount, needsFraudReview
+  fraudBasisAmount, needsFraudReview, toDateValue, dispensingDateOf
 } from '../cardHelpers'
 
 const mapping = {
@@ -102,5 +102,50 @@ describe('voucherOf', () => {
   it('trims and stringifies the mapped voucher number', () => {
     const card = makeCard({ Voucher: '  ABC123  ' })
     expect(voucherOf(card, mapping)).toBe('ABC123')
+  })
+})
+
+describe('toDateValue', () => {
+  it('parses an ISO date string', () => {
+    const d = toDateValue('2024-01-15')
+    expect(d.getUTCFullYear()).toBe(2024)
+    expect(d.getUTCMonth()).toBe(0)
+    expect(d.getUTCDate()).toBe(15)
+  })
+  it('passes through a Date instance unchanged', () => {
+    const input = new Date(2024, 0, 15)
+    expect(toDateValue(input)).toBe(input)
+  })
+  it('converts an Excel serial-number date instead of misreading it as a Unix timestamp', () => {
+    // 45306 is how xlsx represents a real date-formatted cell for 2024-01-15.
+    // Naively passing this to `new Date(...)` would resolve to 1970-01-01.
+    const d = toDateValue(45306)
+    expect(d.getUTCFullYear()).toBe(2024)
+    expect(d.getUTCMonth()).toBe(0)
+    expect(d.getUTCDate()).toBe(15)
+  })
+  it('returns null for empty, null, or unparseable values', () => {
+    expect(toDateValue('')).toBeNull()
+    expect(toDateValue(null)).toBeNull()
+    expect(toDateValue(undefined)).toBeNull()
+    expect(toDateValue('not a date')).toBeNull()
+  })
+  it('does not mistake a small unrelated number (e.g. an amount) for a date serial', () => {
+    expect(toDateValue(500)).toBeNull()
+  })
+})
+
+describe('dispensingDateOf', () => {
+  it('reads the mapped dispensing date column', () => {
+    const m = { ...mapping, dispensing_date: 'Dispensing Date' }
+    const card = makeCard({ 'Dispensing Date': '2024-03-10' })
+    const d = dispensingDateOf(card, m)
+    expect(d.getUTCFullYear()).toBe(2024)
+    expect(d.getUTCMonth()).toBe(2)
+    expect(d.getUTCDate()).toBe(10)
+  })
+  it('returns null when dispensing_date is not mapped', () => {
+    const card = makeCard({ 'Dispensing Date': '2024-03-10' })
+    expect(dispensingDateOf(card, mapping)).toBeNull()
   })
 })

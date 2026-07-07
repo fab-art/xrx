@@ -1,18 +1,23 @@
-export function toDateValue(v) {
-  if (!v) return null
-  if (v instanceof Date) return v
-  const d = new Date(v)
+// Excel stores dates as a serial day count from 1899-12-30. Cells that are
+// actually formatted as dates in the source spreadsheet come through from
+// xlsx as raw numbers like 45306, not JS Dates or strings — `new Date(45306)`
+// would silently resolve to a bogus timestamp near 1970 instead of the real
+// date, so numbers need this explicit conversion rather than passing straight
+// through to the Date constructor.
+function excelSerialToDate(n) {
+  const ms = Math.round((n - 25569) * 86400 * 1000)
+  const d = new Date(ms)
   return isNaN(d.getTime()) ? null : d
 }
 
-// Formats a Date as 'YYYY-MM-DD' using local date parts, suitable for
-// populating an <input type="date"> value.
-export function formatDateForInput(d) {
-  if (!d) return ''
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
+export function toDateValue(v) {
+  if (v === null || v === undefined || v === '') return null
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : v
+  if (typeof v === 'number') {
+    return (v > 1000 && v < 80000) ? excelSerialToDate(v) : null
+  }
+  const d = new Date(v)
+  return isNaN(d.getTime()) ? null : d
 }
 
 function normalizeKeyLoose(s) {

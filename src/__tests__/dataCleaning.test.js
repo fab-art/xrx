@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   normalizeDateValue, normalizeAmountValue, normalizeNameValue,
-  normalizeSexValue, normalizeIdValue, cleanCards, revertCleaning, summarizeChanges
+  normalizeSexValue, normalizeIdValue, cleanCards, revertCleaning, summarizeChanges,
+  dispensingDateHint
 } from '../dataCleaning'
 
 describe('normalizeDateValue', () => {
@@ -131,5 +132,28 @@ describe('summarizeChanges', () => {
     expect(summary.ambiguousCount).toBe(1)
     expect(summary.byField[0].label).toBe('Prescription Date')
     expect(summary.byField[0].changed).toBe(2)
+  })
+})
+
+describe('dispensingDateHint', () => {
+  it('returns an ISO date string from a plain date-formatted cell', () => {
+    const row = { 'Dispensing Date': '15/01/2024' }
+    expect(dispensingDateHint(row, 'Dispensing Date')).toBe('2024-01-15')
+  })
+  it('correctly converts an Excel serial-number cell (not a raw new Date() epoch)', () => {
+    const row = { 'Dispensing Date': 45306 }
+    expect(dispensingDateHint(row, 'Dispensing Date')).toBe('2024-01-15')
+  })
+  it('returns empty string when there is no dispensing-date column mapped', () => {
+    const row = { 'Dispensing Date': '2024-01-15' }
+    expect(dispensingDateHint(row, undefined)).toBe('')
+  })
+  it('returns empty string rather than a garbage value when the cell is not a parseable date', () => {
+    const row = { 'Dispensing Date': 'N/A' }
+    expect(dispensingDateHint(row, 'Dispensing Date')).toBe('')
+  })
+  it('returns empty string when the cell is blank', () => {
+    const row = { 'Dispensing Date': '' }
+    expect(dispensingDateHint(row, 'Dispensing Date')).toBe('')
   })
 })
