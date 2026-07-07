@@ -148,18 +148,26 @@ export default function App() {
       setAutoDetected(Object.values(guessedMapping).filter(Boolean).length)
       setHeaders(hdrs)
       setMapping(guessedMapping)
+      const dispensingHeader = guessedMapping.dispensing_date
       setCards(
-        json.map((row, i) => ({
-          id: i,
-          row,
-          status: 'pending', // pending | verified
-          comment: '',
-          deduction: 0,
-          prescriptionDate: '',
-          facilityOverride: '',
-          explanation: '',
-          classifications: emptyClassifications()
-        }))
+        json.map((row, i) => {
+          // Pre-fill the prescription date with the dispensing date as a hint —
+          // it's usually the same or very close, and this saves re-typing it by
+          // hand; reviewers can still edit it if it's wrong.
+          const dispensed = dispensingHeader ? CH.toDateValue(row[dispensingHeader]) : null
+          const hintDate = dispensed ? CH.formatDateForInput(dispensed) : ''
+          return {
+            id: i,
+            row,
+            status: 'pending', // pending | verified
+            comment: '',
+            deduction: 0,
+            prescriptionDate: hintDate,
+            facilityOverride: '',
+            explanation: '',
+            classifications: emptyClassifications()
+          }
+        })
       )
       setCurrentIndex(0)
       setStage('summary')
@@ -291,6 +299,7 @@ export default function App() {
   const doctorOf = card => CH.doctorOf(card, mapping)
   const voucherOf = card => CH.voucherOf(card, mapping)
   const dateOf = card => CH.dateOf(card, mapping)
+  const dispensingDateOf = card => CH.dispensingDateOf(card, mapping)
   const originalAmount = card => CH.originalAmount(card, mapping)
   const approvedAmount = card => CH.approvedAmount(card, mapping)
   const fraudBasisAmount = card => CH.fraudBasisAmount(card, mapping)
@@ -370,6 +379,19 @@ export default function App() {
         else if (sortBy === 'amount') { av = originalAmount(a) || 0; bv = originalAmount(b) || 0 }
         if (typeof av === 'string') return av.localeCompare(bv) * dir
         return (av - bv) * dir
+      })
+    }
+    // When viewing repeated records, always group same-patient vouchers together
+    // (by name, then chronologically) regardless of the chosen sort, so multiple
+    // vouchers for one person are easy to find and compare side by side.
+    if (advFilter === 'repeated') {
+      list = [...list].sort((a, b) => {
+        const an = String(mappedValue(a, 'patient_name') || '').trim().toLowerCase()
+        const bn = String(mappedValue(b, 'patient_name') || '').trim().toLowerCase()
+        if (an !== bn) return an.localeCompare(bn)
+        const ad = dateOf(a)?.getTime() || 0
+        const bd = dateOf(b)?.getTime() || 0
+        return ad - bd
       })
     }
     return list
@@ -1016,6 +1038,7 @@ export default function App() {
                           <th className="px-3 py-2 font-medium">#</th>
                           <th className="px-3 py-2 font-medium">Voucher No</th>
                           <th className="px-3 py-2 font-medium">Patient</th>
+                          <th className="px-3 py-2 font-medium">Dispensed</th>
                           <th className="px-3 py-2 font-medium">Amount</th>
                           <th className="px-3 py-2 font-medium">Approved</th>
                           <th className="px-3 py-2 font-medium">Status</th>
@@ -1036,6 +1059,7 @@ export default function App() {
                                 <td className="px-3 py-2">{c.id + 1}</td>
                                 <td className="px-3 py-2">{voucherOf(c) || '—'}</td>
                                 <td className="px-3 py-2">{mappedValue(c, 'patient_name') || '—'}</td>
+                                <td className="px-3 py-2">{dispensingDateOf(c)?.toLocaleDateString() ?? '—'}</td>
                                 <td className="px-3 py-2">{originalAmount(c)?.toLocaleString() ?? '—'}</td>
                                 <td className="px-3 py-2">{approvedAmount(c)?.toLocaleString() ?? '—'}</td>
                                 <td className="px-3 py-2">
@@ -1061,7 +1085,7 @@ export default function App() {
                               </tr>
                               {isOpen && (
                                 <tr className="border-t border-border bg-surface-0">
-                                  <td colSpan={8} className="px-4 py-4">
+                                  <td colSpan={9} className="px-4 py-4">
                                     <VoucherRowDetail
                                       card={c}
                                       headers={headers}

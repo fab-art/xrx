@@ -5,6 +5,16 @@ export function toDateValue(v) {
   return isNaN(d.getTime()) ? null : d
 }
 
+// Formats a Date as 'YYYY-MM-DD' using local date parts, suitable for
+// populating an <input type="date"> value.
+export function formatDateForInput(d) {
+  if (!d) return ''
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
 function normalizeKeyLoose(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9]/g, '')
 }
@@ -41,6 +51,10 @@ export function voucherOf(card, mapping) {
 
 export function dateOf(card, mapping) {
   return toDateValue(mappedValue(card, 'visit_date', mapping))
+}
+
+export function dispensingDateOf(card, mapping) {
+  return toDateValue(mappedValue(card, 'dispensing_date', mapping))
 }
 
 export function originalAmount(card, mapping) {
