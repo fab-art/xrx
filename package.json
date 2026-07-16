@@ -73,6 +73,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4",
+    "vite-plugin-pwa": "^0.21.1",
     "@types/d3-force": "^3.0.10",
     "@types/react": "^19",
     "@types/react-dom": "^19",

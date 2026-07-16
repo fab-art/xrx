@@ -1,11 +1,34 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { VitePWA } from 'vite-plugin-pwa';
 import path from 'node:path';
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    VitePWA({
+      // We already ship a hand-written service worker (public/sw.js) with
+      // custom caching rules, and it's registered manually in
+      // ServiceWorkerRegister.tsx — so this plugin's only job is to inject
+      // the hashed build-asset manifest into that file at build time, not
+      // to generate a new service worker or registration script.
+      strategies: 'injectManifest',
+      srcDir: 'public',
+      filename: 'sw.js',
+      injectRegister: false,
+      manifest: false, // public/manifest.json is already hand-written
+      injectManifest: {
+        // public/sw.js already precaches these explicitly; avoid duplicates.
+        globPatterns: ['assets/**/*.{js,css}'],
+      },
+      devOptions: {
+        enabled: false, // avoid SW/HMR churn in dev, same as before
+      },
+    }),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

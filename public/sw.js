@@ -24,6 +24,12 @@ const SHELL_URLS = [
   '/icons/favicon.ico',
 ];
 
+// Hashed build assets (JS/CSS chunks), injected at build time by
+// vite-plugin-pwa's `injectManifest` strategy. Each entry is
+// { url, revision }. Falls back to an empty array in dev (where this file
+// is served as-is, unprocessed).
+const BUILD_MANIFEST = self.__WB_MANIFEST || [];
+
 // Maximum number of entries to keep in the runtime cache (LRU eviction).
 const RUNTIME_CACHE_LIMIT = 60;
 
@@ -40,6 +46,14 @@ self.addEventListener('install', (event) => {
           cache.add(new Request(url, { cache: 'reload' }))
         )
       );
+      // Precache hashed JS/CSS chunks from the build manifest, if present.
+      if (BUILD_MANIFEST.length) {
+        await Promise.allSettled(
+          BUILD_MANIFEST.map((entry) =>
+            cache.add(new Request(entry.url, { cache: 'reload' }))
+          )
+        );
+      }
       // Activate immediately — don't wait for old SW clients to close.
       self.skipWaiting();
     })()
