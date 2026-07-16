@@ -1,5 +1,3 @@
-'use client';
-
 import { useState } from 'react';
 import { useSessionStore } from '@/store/session-store';
 import { autoMapHeaders, parseSpreadsheetFile } from '@/lib/rssb/fileParsing';

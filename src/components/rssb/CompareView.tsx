@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx-js-style';
 import {

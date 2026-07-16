@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect } from 'react';
 
 /**
@@ -12,7 +10,7 @@ export function ServiceWorkerRegister() {
     if (typeof window === 'undefined') return;
     if (!('serviceWorker' in navigator)) return;
     // Skip in dev — Next.js HMR + SW caching fight each other.
-    if (process.env.NODE_ENV !== 'production') return;
+    if (!import.meta.env.PROD) return;
 
     let refreshing = false;
     const onControllerChange = () => {

@@ -1,5 +1,3 @@
-'use client';
-
 import { useCardHelpers } from './use-card-helpers';
 import { CLASSIFICATION_DEFS } from '@/lib/rssb/config';
 import { useSessionStore } from '@/store/session-store';
