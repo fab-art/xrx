@@ -4,9 +4,11 @@ const DialogContext = createContext(null)
 let dialogIdCounter = 0
 
 export function DialogProvider({ children }) {
-  const [dialog, setDialog] = useState(null) // { type: 'alert' | 'confirm', message, resolve }
+  const [dialog, setDialog] = useState(null) // { type: 'alert' | 'confirm' | 'prompt', message, resolve }
+  const [promptValue, setPromptValue] = useState('')
   const confirmRef = useRef(null)
   const cancelRef = useRef(null)
+  const inputRef = useRef(null)
   const previouslyFocused = useRef(null)
   const descriptionId = useRef(`dialog-desc-${++dialogIdCounter}`)
 
@@ -18,8 +20,14 @@ export function DialogProvider({ children }) {
     return new Promise(resolve => setDialog({ type: 'confirm', message, resolve }))
   }, [])
 
+  // Resolves with the entered string, or null if cancelled/dismissed.
+  const promptUser = useCallback((message, defaultValue = '') => {
+    setPromptValue(defaultValue)
+    return new Promise(resolve => setDialog({ type: 'prompt', message, resolve }))
+  }, [])
+
   function close(result) {
-    if (dialog?.resolve) dialog.resolve(result)
+    if (dialog?.resolve) dialog.resolve(dialog.type === 'prompt' ? (result ? promptValue : null) : result)
     setDialog(null)
     previouslyFocused.current?.focus?.()
   }
@@ -28,7 +36,7 @@ export function DialogProvider({ children }) {
     if (!dialog) return
     previouslyFocused.current = document.activeElement
     // Confirm dialogs default focus to Cancel (the safer, non-destructive choice).
-    const target = dialog.type === 'confirm' ? cancelRef.current : confirmRef.current
+    const target = dialog.type === 'prompt' ? inputRef.current : dialog.type === 'confirm' ? cancelRef.current : confirmRef.current
     target?.focus()
   }, [dialog])
 
@@ -50,7 +58,7 @@ export function DialogProvider({ children }) {
   }
 
   return (
-    <DialogContext.Provider value={{ alertUser, confirmUser }}>
+    <DialogContext.Provider value={{ alertUser, confirmUser, promptUser }}>
       {children}
       {dialog && (
         <div
@@ -61,9 +69,20 @@ export function DialogProvider({ children }) {
           onKeyDown={handleKeyDown}
         >
           <div className="w-full max-w-sm rounded-card border border-border bg-surface-1 p-5 shadow-xl">
-            <p id={descriptionId.current} className="text-sm leading-relaxed whitespace-pre-line mb-5">{dialog.message}</p>
+            <p id={descriptionId.current} className="text-sm leading-relaxed whitespace-pre-line mb-3">{dialog.message}</p>
+            {dialog.type === 'prompt' && (
+              <input
+                ref={inputRef}
+                type="text"
+                value={promptValue}
+                onChange={e => setPromptValue(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') close(true) }}
+                className="w-full border border-border rounded-lg px-2.5 py-1.5 text-sm bg-surface-2 mb-5"
+              />
+            )}
+            {dialog.type !== 'prompt' && <div className="mb-2" />}
             <div className="flex justify-end gap-2">
-              {dialog.type === 'confirm' && (
+              {dialog.type !== 'alert' && (
                 <button
                   ref={cancelRef}
                   onClick={() => close(false)}
@@ -77,7 +96,7 @@ export function DialogProvider({ children }) {
                 onClick={() => close(true)}
                 className="text-sm rounded-lg px-3.5 py-1.5 bg-brand text-white hover:bg-brand-dark"
               >
-                {dialog.type === 'confirm' ? 'Continue' : 'OK'}
+                {dialog.type === 'alert' ? 'OK' : 'Continue'}
               </button>
             </div>
           </div>
