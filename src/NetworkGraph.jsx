@@ -168,7 +168,7 @@ export default function NetworkGraph({ cards, mapping, matchResults, matchOverri
             </div>
             {matchResults && (
               <div className="text-xs rounded-lg bg-danger-light text-danger-dark px-2.5 py-2">
-                Red outline/edges = relationship where over 40% of shared vouchers are Fraud Risk or Orphan.
+                Red outline/edges = relationship where over 40% of shared vouchers are Fraud Risk or Not Found.
               </div>
             )}
           </aside>
@@ -271,7 +271,7 @@ export default function NetworkGraph({ cards, mapping, matchResults, matchOverri
             </div>
             {matchResults && (
               <div className="rounded-lg bg-danger-light px-3 py-2">
-                <div className="text-[11px] text-danger-dark">Fraud-risk / orphan vouchers</div>
+                <div className="text-[11px] text-danger-dark">Fraud-risk / not-found vouchers</div>
                 <div className="text-base font-medium text-danger-dark">{selected.fraudCount} of {selected.voucherCount}</div>
               </div>
             )}

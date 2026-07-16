@@ -1,4 +1,4 @@
-export default function FraudReviewView({ cards, updateCard, needsFraudReview, voucherOf, mappedValue, originalAmount, facilityOf, generateFraudReport }) {
+export default function FraudReviewView({ cards, updateCard, needsFraudReview, voucherOf, mappedValue, originalAmount, facilityOf, generateFraudReport, fileNumberOf }) {
   const fraudCards = cards.filter(c => c.classifications?.fraud)
 
   return (
@@ -16,6 +16,7 @@ export default function FraudReviewView({ cards, updateCard, needsFraudReview, v
         <table className="w-full text-sm bg-surface-1">
           <thead>
             <tr className="text-xs text-ink-muted text-left">
+              <th className="px-3 py-2 font-medium">#</th>
               <th className="px-3 py-2 font-medium">Voucher</th>
               <th className="px-3 py-2 font-medium">Patient</th>
               <th className="px-3 py-2 font-medium">Amount</th>
@@ -29,6 +30,7 @@ export default function FraudReviewView({ cards, updateCard, needsFraudReview, v
           <tbody>
             {fraudCards.map(c => (
               <tr key={c.id} className={`border-t border-border align-top ${needsFraudReview(c) ? 'bg-danger-light/40' : ''}`}>
+                <td className="px-3 py-2">{fileNumberOf(c) ?? '—'}</td>
                 <td className="px-3 py-2">{voucherOf(c) || '—'}</td>
                 <td className="px-3 py-2">{mappedValue(c, 'patient_name') || '—'}</td>
                 <td className="px-3 py-2">{originalAmount(c)?.toLocaleString() ?? '—'}</td>
@@ -58,7 +60,7 @@ export default function FraudReviewView({ cards, updateCard, needsFraudReview, v
               </tr>
             ))}
             {fraudCards.length === 0 && (
-              <tr><td colSpan={8} className="px-3 py-6 text-center text-ink-muted text-sm">No vouchers flagged as fraud activity yet.</td></tr>
+              <tr><td colSpan={9} className="px-3 py-6 text-center text-ink-muted text-sm">No vouchers flagged as fraud activity yet.</td></tr>
             )}
           </tbody>
         </table>

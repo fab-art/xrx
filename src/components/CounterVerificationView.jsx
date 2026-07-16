@@ -1,11 +1,41 @@
-export default function CounterVerificationView({ cards, updateCard, counterHeader, setCounterHeader, voucherOf, mappedValue, originalAmount, generateCounterReport }) {
-  const deducted = cards.filter(c => (parseFloat(c.deduction) || 0) > 0)
+const CATEGORY_FILTER_OPTIONS = [
+  ['all', 'All categories'],
+  ['pharma', 'Pharmacological compliance'],
+  ['rssb', 'RSSB rules compliance'],
+  ['fraud', 'Fraud activity']
+]
+
+export default function CounterVerificationView({
+  cards, updateCard, counterHeader, setCounterHeader, voucherOf, mappedValue, originalAmount, fileNumberOf,
+  generateCounterReport, counterCategoryFilter, setCounterCategoryFilter
+}) {
+  const deducted = cards
+    .filter(c => (parseFloat(c.deduction) || 0) > 0)
+    .filter(c => counterCategoryFilter === 'all' || c.classifications?.[counterCategoryFilter])
 
   return (
     <div>
       <p className="text-sm text-ink-muted mb-4">
         Review every voucher that currently has a deduction, adjust the amount or explanation as a final check, then generate the counter verification report.
       </p>
+
+      <div className="rounded-card border border-border bg-surface-1 p-4 mb-5 flex flex-wrap items-center gap-3">
+        <label className="text-xs text-ink-muted">Filter by category</label>
+        <select
+          value={counterCategoryFilter}
+          onChange={e => setCounterCategoryFilter(e.target.value)}
+          className="text-sm border border-border rounded-lg px-2.5 py-1.5 bg-surface-2"
+        >
+          {CATEGORY_FILTER_OPTIONS.map(([key, label]) => (
+            <option key={key} value={key}>{label}</option>
+          ))}
+        </select>
+        <span className="text-xs text-ink-muted">
+          {counterCategoryFilter === 'all'
+            ? 'Showing every deducted voucher.'
+            : `Showing only "${CATEGORY_FILTER_OPTIONS.find(([k]) => k === counterCategoryFilter)[1]}" vouchers — the generated report will only include this category.`}
+        </span>
+      </div>
 
       <div className="rounded-card border border-border bg-surface-1 p-4 mb-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {[
@@ -48,7 +78,7 @@ export default function CounterVerificationView({ cards, updateCard, counterHead
           <thead>
             <tr className="text-xs text-ink-muted text-left">
               <th className="px-3 py-2 font-medium">NO</th>
-              <th className="px-3 py-2 font-medium">N° BEN. / Voucher</th>
+              <th className="px-3 py-2 font-medium"># (from file)</th>
               <th className="px-3 py-2 font-medium">RAMA Number</th>
               <th className="px-3 py-2 font-medium">Original amount</th>
               <th className="px-3 py-2 font-medium">Deduction (adjustable)</th>
@@ -60,7 +90,7 @@ export default function CounterVerificationView({ cards, updateCard, counterHead
             {deducted.map((c, i) => (
               <tr key={c.id} className="border-t border-border align-top">
                 <td className="px-3 py-2">{i + 1}</td>
-                <td className="px-3 py-2">{voucherOf(c) || '—'}</td>
+                <td className="px-3 py-2">{fileNumberOf(c) ?? voucherOf(c) ?? '—'}</td>
                 <td className="px-3 py-2">{mappedValue(c, 'rama_number') || '—'}</td>
                 <td className="px-3 py-2">{originalAmount(c)?.toLocaleString() ?? '—'}</td>
                 <td className="px-3 py-2">
@@ -82,7 +112,9 @@ export default function CounterVerificationView({ cards, updateCard, counterHead
       </div>
 
       <button onClick={generateCounterReport} className="text-sm rounded-lg px-4 py-2 bg-brand text-white hover:bg-brand-dark transition-colors">
-        Generate counter verification report
+        {counterCategoryFilter === 'all'
+          ? 'Generate counter verification report'
+          : `Generate report for "${CATEGORY_FILTER_OPTIONS.find(([k]) => k === counterCategoryFilter)[1]}" only`}
       </button>
     </div>
   )

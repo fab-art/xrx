@@ -15,13 +15,17 @@ import SummaryView from './components/SummaryView'
 import FraudReviewView from './components/FraudReviewView'
 import CounterVerificationView from './components/CounterVerificationView'
 import VoucherRowDetail from './components/VoucherRowDetail'
+import SessionsView from './components/SessionsView'
 import { useDialog } from './components/Dialog'
 import {
   STORAGE_KEY, THEME_KEY, SAVE_DEBOUNCE_MS,
   FIELD_DEFS, CLASSIFICATION_DEFS, HOSPITAL_FIELD_DEFS, MATCH_CATEGORIES, TABS,
   emptyClassifications
 } from './config'
-import { loadState, saveState, clearState } from './utils/storage'
+import {
+  loadState, saveState, clearState,
+  listSessions, saveSession, loadSession, deleteSession, importSession
+} from './utils/storage'
 import { autoMapHeaders, parseSpreadsheetFile } from './fileParsing'
 import * as CH from './cardHelpers'
 import { cleanCards, revertCleaning, summarizeChanges, dispensingDateHint } from './dataCleaning'
@@ -31,7 +35,7 @@ import {
 } from './reportGenerators'
 
 export default function App() {
-  const { alertUser, confirmUser } = useDialog()
+  const { alertUser, confirmUser, promptUser } = useDialog()
   const saveTimer = useRef(null)
   const [hydrated, setHydrated] = useState(false)
 
@@ -67,6 +71,10 @@ export default function App() {
   const [autoDetected, setAutoDetected] = useState(0)
   const [cleaningReport, setCleaningReport] = useState(null)
   const [expandedIds, setExpandedIds] = useState(() => new Set())
+  const [counterCategoryFilter, setCounterCategoryFilter] = useState('all')
+  const [sessions, setSessions] = useState([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [activeSessionId, setActiveSessionId] = useState(null)
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem(THEME_KEY) || 'light' } catch { return 'light' }
   })
@@ -103,8 +111,16 @@ export default function App() {
       }
       setHydrated(true)
     })
+    refreshSessions()
     return () => { cancelled = true }
   }, [])
+
+  function refreshSessions() {
+    setSessionsLoading(true)
+    listSessions()
+      .then(list => setSessions([...list].sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))))
+      .finally(() => setSessionsLoading(false))
+  }
 
   // Debounced + failure-aware persistence. Previously this fired a full
   // JSON.stringify + localStorage.setItem of the entire app state (including
@@ -166,7 +182,8 @@ export default function App() {
         }))
       )
       setCurrentIndex(0)
-      setStage('summary')
+      setActiveSessionId(null)
+      setStage('map')
     } catch (err) {
       console.error(err)
       await alertUser(`Couldn't read "${file.name}". Please make sure it's a valid Excel or CSV file.`)
@@ -310,6 +327,7 @@ export default function App() {
   const facilityOf = card => CH.facilityOf(card, mapping)
   const doctorOf = card => CH.doctorOf(card, mapping)
   const voucherOf = card => CH.voucherOf(card, mapping)
+  const fileNumberOf = card => CH.fileNumberOf(card, mapping)
   const dateOf = card => CH.dateOf(card, mapping)
   const dispensingDateOf = card => CH.dispensingDateOf(card, mapping)
   const originalAmount = card => CH.originalAmount(card, mapping)
@@ -466,6 +484,140 @@ export default function App() {
     XLSX.writeFile(wb, `verified_${fileName || 'export'}.xlsx`)
   }
 
+  // Exports whatever the current search/status/date/classification filters are
+  // showing on the Dashboard tab (e.g. only repeated records), rather than the
+  // whole voucher set — same workbook shape as the full export, just scoped.
+  function exportFilteredResults() {
+    if (!filteredCards.length) {
+      alertUser('No vouchers match the current filter — nothing to export.')
+      return
+    }
+    const wb = buildVerifiedWorkbook({ cards: filteredCards, mapping })
+    const suffix = advFilter !== 'none' ? `_${advFilter}` : (statusFilter !== 'all' ? `_${statusFilter}` : '_filtered')
+    XLSX.writeFile(wb, `${fileName || 'export'}${suffix}.xlsx`)
+  }
+
+  function buildSessionSnapshot() {
+    return {
+      stage, fileName, headers, mapping, cards, currentIndex, counterHeader, autoDetected,
+      hospitalFiles, matchResults, matchOverrides, matchNotes
+    }
+  }
+
+  async function saveCurrentAsSession() {
+    if (!cards.length) {
+      await alertUser('Nothing to save yet — load a file first.')
+      return
+    }
+    const defaultName = counterHeader.pharmacyName || fileName || 'Untitled session'
+    const name = await promptUser('Name this session (e.g. the pharmacy name and period):', defaultName)
+    if (!name) return
+    const id = activeSessionId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const stats = {
+      total: summary.total,
+      verified: summary.verified,
+      pending: summary.pending,
+      fraudFlagged: summary.fraudFlagged,
+      progressPct: summary.progressPct
+    }
+    const meta = { id, name, fileName, savedAt: Date.now(), stats }
+    const res = await saveSession(meta, buildSessionSnapshot())
+    if (!res.ok) {
+      await alertUser("Couldn't save this session on this device — try freeing up storage or using a different browser.")
+      return
+    }
+    setActiveSessionId(id)
+    refreshSessions()
+    await alertUser(`Saved "${name}" to your sessions.`)
+  }
+
+  async function reloadSessionById(id) {
+    if (cards.length) {
+      const proceed = await confirmUser(
+        'Loading this session will replace the work currently on screen. Anything not saved as its own session will be lost. Continue?'
+      )
+      if (!proceed) return
+    }
+    const result = await loadSession(id)
+    if (!result || !result.state) {
+      await alertUser("Couldn't load that session — it may have been removed.")
+      refreshSessions()
+      return
+    }
+    const { state } = result
+    setStage(state.stage || 'summary')
+    setFileName(state.fileName || '')
+    setHeaders(state.headers || [])
+    setMapping(state.mapping || {})
+    setCards(state.cards || [])
+    setCurrentIndex(state.currentIndex || 0)
+    setCounterHeader(state.counterHeader || {
+      code: '', pharmacyName: '', period: '', tin: '',
+      preparedBy: '', preparedByPosition: '',
+      verifiedBy: '', verifiedByPosition: '',
+      approvedBy: '', approvedByPosition: ''
+    })
+    setAutoDetected(state.autoDetected || 0)
+    setHospitalFiles(state.hospitalFiles || [])
+    setMatchResults(state.matchResults || null)
+    setMatchOverrides(state.matchOverrides || {})
+    setMatchNotes(state.matchNotes || {})
+    setActiveSessionId(id)
+  }
+
+  async function deleteSessionById(id, name) {
+    const proceed = await confirmUser(`Delete session "${name}"? This can't be undone.`)
+    if (!proceed) return
+    await deleteSession(id)
+    if (activeSessionId === id) setActiveSessionId(null)
+    refreshSessions()
+  }
+
+  async function exportSessionFile(id) {
+    const result = await loadSession(id)
+    if (!result || !result.state) {
+      await alertUser("Couldn't load that session to export.")
+      return
+    }
+    const payload = { kind: 'rssb-verify-session', version: 1, meta: result.entry, state: result.state }
+    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `session_${(result.entry.name || 'export').replace(/[^a-z0-9_-]+/gi, '_')}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  async function importSessionFile(file) {
+    try {
+      const text = await file.text()
+      const payload = JSON.parse(text)
+      if (!payload || payload.kind !== 'rssb-verify-session' || !payload.state) {
+        await alertUser('That file doesn\'t look like an exported session from this app.')
+        return
+      }
+      const meta = {
+        name: `${payload.meta?.name || 'Imported session'} (imported)`,
+        fileName: payload.meta?.fileName || '',
+        savedAt: Date.now(),
+        stats: payload.meta?.stats || {}
+      }
+      const id = await importSession(meta, payload.state)
+      if (!id) {
+        await alertUser("Couldn't import this session on this device — try freeing up storage.")
+        return
+      }
+      refreshSessions()
+      await alertUser(`Imported "${meta.name}" — you can reload it from the Sessions list.`)
+    } catch (err) {
+      console.error(err)
+      await alertUser("Couldn't read that file. Make sure it's a session exported from this app.")
+    }
+  }
+
   async function generateFraudReport() {
     const fraudCards = cards.filter(c => c.classifications?.fraud)
     if (fraudCards.length === 0) {
@@ -489,12 +641,13 @@ export default function App() {
   }
 
   async function generateCounterReport() {
-    const { workbook, deductedCount } = buildCounterReportWorkbook({ cards, mapping, counterHeader })
+    const { workbook, deductedCount } = buildCounterReportWorkbook({ cards, mapping, counterHeader, categoryFilter: counterCategoryFilter })
     if (deductedCount === 0) {
-      await alertUser('No vouchers currently have a deduction to include in the counter verification report.')
+      await alertUser('No vouchers currently have a deduction to include in the counter verification report (for the selected category, if filtered).')
       return
     }
-    XLSX.writeFile(workbook, `counter_verification_${fileName || 'export'}.xlsx`)
+    const suffix = counterCategoryFilter !== 'all' ? `_${counterCategoryFilter}` : ''
+    XLSX.writeFile(workbook, `counter_verification_${fileName || 'export'}${suffix}.xlsx`)
   }
 
   function reset() {
@@ -506,6 +659,7 @@ export default function App() {
     setCards([])
     setCurrentIndex(0)
     setAutoDetected(0)
+    setActiveSessionId(null)
   }
 
   const currentCard = cards[currentIndex]
@@ -597,6 +751,39 @@ export default function App() {
                 <span className="text-xs text-ink-muted">.xlsx, .xls or .csv</span>
               </label>
             </div>
+            <div className="mt-4 text-center">
+              <button onClick={() => setStage('sessions')} className="text-sm text-brand underline">
+                Manage saved sessions{sessions.length > 0 ? ` (${sessions.length})` : ''}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!showShell && stage === 'sessions' && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+            <header className="mb-6 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <img src="/logo.png" alt="RSSB" className="w-11 h-11 shrink-0" />
+                <div>
+                  <h1 className="text-xl font-medium tracking-tight">Sessions</h1>
+                  <p className="text-sm text-ink-muted mt-0.5">Reload, export, or clean up saved pharmacy sessions</p>
+                </div>
+              </div>
+              <button onClick={() => setStage('upload')} className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface-1 hover:bg-surface-2 shrink-0">
+                ← Back
+              </button>
+            </header>
+            <SessionsView
+              sessions={sessions}
+              loading={sessionsLoading}
+              activeSessionId={activeSessionId}
+              onReload={reloadSessionById}
+              onDelete={deleteSessionById}
+              onExport={exportSessionFile}
+              onImportFile={importSessionFile}
+              onSaveCurrent={saveCurrentAsSession}
+              canSaveCurrent={cards.length > 0}
+            />
           </div>
         )}
 
@@ -658,7 +845,7 @@ export default function App() {
                   mappedValue={mappedValue}
                   originalAmount={originalAmount}
                   dateOf={dateOf}
-                  onContinue={() => setStage('map')}
+                  onContinue={() => setStage('verify')}
                 />
               )}
 
@@ -701,10 +888,10 @@ export default function App() {
                       Clean &amp; normalize data →
                     </button>
                     <button
-                      onClick={() => { setCards(cs => backfillPrescriptionDateHints(cs, mapping)); setStage('verify') }}
+                      onClick={() => { setCards(cs => backfillPrescriptionDateHints(cs, mapping)); setStage('summary') }}
                       className="text-sm text-ink-muted underline"
                     >
-                      Skip cleaning, go straight to verification
+                      Skip cleaning, go straight to summary
                     </button>
                   </div>
                 </div>
@@ -808,10 +995,10 @@ export default function App() {
 
                   <div className="flex items-center gap-3">
                     <button
-                      onClick={() => setStage('verify')}
+                      onClick={() => setStage('summary')}
                       className="bg-brand text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-brand-dark transition-colors"
                     >
-                      Looks good, continue to verification
+                      Looks good, continue to summary
                     </button>
                     {cleaningReport && cleaningReport.length > 0 && (
                       <button onClick={undoCleaning} className="text-sm border border-border rounded-lg px-3.5 py-2 hover:bg-surface-2">
@@ -1035,7 +1222,8 @@ export default function App() {
                       className="text-xs border border-border rounded-lg px-2.5 py-1.5 bg-surface-1 hover:bg-surface-2 disabled:opacity-40">
                       {sortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
                     </button>
-                    <button onClick={exportResults} className="ml-auto text-sm rounded-lg px-3.5 py-1.5 bg-brand text-white hover:bg-brand-dark transition-colors">Export</button>
+                    <button onClick={exportResults} className="ml-auto text-sm rounded-lg px-3.5 py-1.5 border border-brand text-brand hover:bg-brand-light transition-colors">Export all</button>
+                    <button onClick={exportFilteredResults} className="text-sm rounded-lg px-3.5 py-1.5 bg-brand text-white hover:bg-brand-dark transition-colors">Export filtered view</button>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-3 mb-3 text-sm">
@@ -1185,7 +1373,7 @@ export default function App() {
                         voucher against all hospital records using weighted evidence — exact ID, near-ID typo,
                         rarity-weighted name similarity, sex agreement, and DOB agreement — with sex/DOB
                         contradictions forcing a fraud-risk flag regardless of score. Results land in four
-                        buckets: Clean Match, Needs Review, Fraud Risk, and Orphan.
+                        buckets: Clean Match, Needs Review, Fraud Risk, and Not Found.
                       </p>
                       <button
                         onClick={runMatching}
@@ -1241,14 +1429,14 @@ export default function App() {
                         <button
                           onClick={async () => {
                             const targets = cards.filter(c => ['fraud_risk', 'orphan'].includes(matchCategoryOf(c.id)) && !c.classifications?.fraud)
-                            if (!targets.length) { await alertUser('No unflagged Fraud Risk or Orphan records to send.'); return }
-                            const proceed = await confirmUser(`Send ${targets.length} Fraud Risk / Orphan voucher(s) to Fraud Review? Their full RSSB-payable amount will be withheld (approved amount set to 0).`)
+                            if (!targets.length) { await alertUser('No unflagged Fraud Risk or Not Found records to send.'); return }
+                            const proceed = await confirmUser(`Send ${targets.length} Fraud Risk / Not Found voucher(s) to Fraud Review? Their full RSSB-payable amount will be withheld (approved amount set to 0).`)
                             if (!proceed) return
                             targets.forEach(c => sendToFraudReview(c, CATEGORY_LABELS[matchCategoryOf(c.id)]))
                           }}
                           className="ml-auto text-sm rounded-lg px-3.5 py-1.5 bg-danger text-white hover:bg-danger-dark transition-colors"
                         >
-                          Send Fraud Risk + Orphan to Fraud Review
+                          Send Fraud Risk + Not Found to Fraud Review
                         </button>
                         <button onClick={exportMatchResults} className="text-sm rounded-lg px-3.5 py-1.5 bg-brand text-white hover:bg-brand-dark transition-colors">
                           Export match report
@@ -1257,7 +1445,7 @@ export default function App() {
 
                       <p className="text-xs text-ink-muted mb-4 max-w-3xl">
                         Reminder: a normal deduction is calculated against 85% of total cost, or the mapped
-                        insurance co-payment amount if present. For vouchers sent here as Fraud Risk or Orphan,
+                        insurance co-payment amount if present. For vouchers sent here as Fraud Risk or Not Found,
                         that entire basis is withheld — the approved/RSSB-payable amount becomes 0. You can
                         still edit the deduction manually in the Fraud review tab.
                       </p>
@@ -1266,6 +1454,8 @@ export default function App() {
                         <table className="w-full text-sm bg-surface-1">
                           <thead>
                             <tr className="text-xs text-ink-muted text-left">
+                              <th className="px-3 py-2 font-medium">#</th>
+                              <th className="px-3 py-2 font-medium">Voucher date</th>
                               <th className="px-3 py-2 font-medium">Pharmacy patient</th>
                               <th className="px-3 py-2 font-medium">Pharmacy ID</th>
                               <th className="px-3 py-2 font-medium">Matched hospital record</th>
@@ -1287,6 +1477,8 @@ export default function App() {
                               }[cat]
                               return (
                                 <tr key={card.id} className="border-t border-border align-top">
+                                  <td className="px-3 py-2">{fileNumberOf(card) ?? '—'}</td>
+                                  <td className="px-3 py-2">{dateOf(card)?.toLocaleDateString() ?? '—'}</td>
                                   <td className="px-3 py-2">{mappedValue(card, 'patient_name') || `Record ${card.id + 1}`}</td>
                                   <td className="px-3 py-2">{mappedValue(card, 'rama_number') || '—'}</td>
                                   <td className="px-3 py-2">
@@ -1336,7 +1528,7 @@ export default function App() {
                               )
                             })}
                             {filteredMatchList.length === 0 && (
-                              <tr><td colSpan={7} className="px-3 py-6 text-center text-ink-muted text-sm">No records match this filter.</td></tr>
+                              <tr><td colSpan={9} className="px-3 py-6 text-center text-ink-muted text-sm">No records match this filter.</td></tr>
                             )}
                           </tbody>
                         </table>
@@ -1352,7 +1544,7 @@ export default function App() {
                     Explore relationships between doctors, patients, and facilities built from every voucher.
                     Node size scales with voucher volume; edge thickness scales with how often that pair recurs
                     together. If a hospital match has been run, relationships where over 40% of shared vouchers
-                    are Fraud Risk or Orphan are outlined in red — useful for spotting doctor-patient pairs or
+                    are Fraud Risk or Not Found are outlined in red — useful for spotting doctor-patient pairs or
                     facility patterns worth a closer look. Drag to pan, scroll to zoom, click any node for detail.
                   </p>
                   <Suspense fallback={<div className="rounded-card border border-border bg-surface-1 p-8 text-sm text-ink-muted text-center">Loading network analysis…</div>}>
@@ -1367,6 +1559,7 @@ export default function App() {
                   updateCard={updateCard}
                   needsFraudReview={needsFraudReview}
                   voucherOf={voucherOf}
+                  fileNumberOf={fileNumberOf}
                   mappedValue={mappedValue}
                   originalAmount={originalAmount}
                   facilityOf={facilityOf}
@@ -1383,7 +1576,24 @@ export default function App() {
                   voucherOf={voucherOf}
                   mappedValue={mappedValue}
                   originalAmount={originalAmount}
+                  fileNumberOf={fileNumberOf}
+                  counterCategoryFilter={counterCategoryFilter}
+                  setCounterCategoryFilter={setCounterCategoryFilter}
                   generateCounterReport={generateCounterReport}
+                />
+              )}
+
+              {stage === 'sessions' && (
+                <SessionsView
+                  sessions={sessions}
+                  loading={sessionsLoading}
+                  activeSessionId={activeSessionId}
+                  onReload={reloadSessionById}
+                  onDelete={deleteSessionById}
+                  onExport={exportSessionFile}
+                  onImportFile={importSessionFile}
+                  onSaveCurrent={saveCurrentAsSession}
+                  canSaveCurrent={cards.length > 0}
                 />
               )}
             </main>

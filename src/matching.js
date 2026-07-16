@@ -254,5 +254,5 @@ export const CATEGORY_LABELS = {
   clean: 'Clean Match',
   fraud_risk: 'Mismatched Identity (Fraud Risk)',
   review: 'Needs Review',
-  orphan: 'Orphan Record (Ghost Patient)'
+  orphan: 'Not Found (Ghost Patient)'
 }

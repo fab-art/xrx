@@ -86,6 +86,23 @@ export function fraudBasisAmount(card, mapping) {
   return Math.round(orig * 0.85 * 100) / 100
 }
 
+// Many source files carry their own literal row-numbering column named
+// exactly "#" (distinct from the mapped voucher_no field, which is usually a
+// paper code). Reports and review tables that need "the number as it appears
+// in the file" should use this instead of voucherOf, falling back to the
+// mapped voucher number and finally the card's own position if neither exists.
+export function fileNumberOf(card, mapping) {
+  const keys = Object.keys(card.row || {})
+  const hashHeader = keys.find(h => String(h).trim() === '#')
+  if (hashHeader) {
+    const v = card.row[hashHeader]
+    if (v !== '' && v !== null && v !== undefined) return v
+  }
+  const vn = voucherOf(card, mapping)
+  if (vn) return vn
+  return card.id + 1
+}
+
 export function needsFraudReview(card, mapping) {
   return !!(card.classifications?.fraud && (!card.prescriptionDate || !facilityOf(card, mapping)))
 }

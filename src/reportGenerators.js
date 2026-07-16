@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx-js-style'
 import { CATEGORY_LABELS } from './matching'
 import { MATCH_CATEGORIES } from './config'
 import {
-  mappedValue, facilityOf, voucherOf, originalAmount, approvedAmount, needsFraudReview, findRowValue
+  mappedValue, facilityOf, voucherOf, originalAmount, approvedAmount, needsFraudReview, findRowValue, fileNumberOf
 } from './cardHelpers'
 
 export function draftSheetRows(cards, mapping) {
@@ -128,8 +128,14 @@ export function buildFraudReportWorkbook({ cards, headers, mapping }) {
   return { workbook: wb, completeCount: complete.length, incompleteCount: incomplete.length }
 }
 
-export function buildCounterReportWorkbook({ cards, mapping, counterHeader }) {
-  const deducted = cards.filter(c => (parseFloat(c.deduction) || 0) > 0)
+// categoryFilter: 'all' | 'pharma' | 'rssb' | 'fraud' — restricts the report
+// to vouchers classified under that deduction category, so separate reports
+// can be generated per category instead of always bundling everything together.
+export function buildCounterReportWorkbook({ cards, mapping, counterHeader, categoryFilter = 'all' }) {
+  let deducted = cards.filter(c => (parseFloat(c.deduction) || 0) > 0)
+  if (categoryFilter !== 'all') {
+    deducted = deducted.filter(c => c.classifications?.[categoryFilter])
+  }
 
   const titleStyle = { font: { name: 'Arial', sz: 10, bold: true } }
   const centerTitleStyle = { font: { name: 'Arial', sz: 10, bold: true }, alignment: { horizontal: 'left' } }
@@ -156,7 +162,7 @@ export function buildCounterReportWorkbook({ cards, mapping, counterHeader }) {
     totalDiff += diff
     aoa.push([
       i + 1,
-      voucherOf(c, mapping) || findRowValue(c, ['papercode', 'voucher', 'code']) || '',
+      fileNumberOf(c, mapping) || voucherOf(c, mapping) || findRowValue(c, ['papercode', 'voucher', 'code']) || '',
       mappedValue(c, 'rama_number', mapping) || findRowValue(c, ['ramanumber']) || '',
       diff,
       c.explanation || c.comment || ''
@@ -170,13 +176,13 @@ export function buildCounterReportWorkbook({ cards, mapping, counterHeader }) {
   styleRows.push('blank')
   aoa.push(['Prepared by:', '', 'Verified by', '', 'Approved By'])
   styleRows.push('footer')
+  aoa.push([`Names: ${counterHeader.preparedBy || ''}`, '', `Names: ${counterHeader.verifiedBy || ''}`, '', `Names: ${counterHeader.approvedBy || ''}`])
+  styleRows.push('footer')
   aoa.push([`Position: ${counterHeader.preparedByPosition || ''}`, '', `Position: ${counterHeader.verifiedByPosition || ''}`, '', `Position: ${counterHeader.approvedByPosition || ''}`])
   styleRows.push('footer')
   aoa.push(['Date:', '', 'Date:', '', 'Date:'])
   styleRows.push('footer')
   aoa.push(['Signature:', '', 'Signature:', '', 'Signature:'])
-  styleRows.push('footer')
-  aoa.push([`Names: ${counterHeader.preparedBy || ''}`, '', `Names: ${counterHeader.verifiedBy || ''}`, '', `Names: ${counterHeader.approvedBy || ''}`])
   styleRows.push('footer')
 
   const ws = XLSX.utils.aoa_to_sheet(aoa)

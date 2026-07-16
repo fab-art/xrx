@@ -2,6 +2,8 @@ export const STORAGE_KEY = 'verify-app-state-v3'
 export const THEME_KEY = 'verify-app-theme'
 export const APP_NAME = 'RSSB Counter Verification System'
 export const SAVE_DEBOUNCE_MS = 500
+export const SESSIONS_INDEX_KEY = 'verify-app-sessions-index-v1'
+export const SESSION_STORAGE_PREFIX = 'verify-app-session-v1-'
 
 export const FIELD_DEFS = [
   { key: 'voucher_no', label: 'Paper Code / Voucher No', guesses: ['papercode', 'voucheridentification', 'voucher', 'claimno', 'code', 'n0', 'no'] },
@@ -41,16 +43,17 @@ export const HOSPITAL_FIELD_DEFS = [
 export const MATCH_CATEGORIES = ['clean', 'review', 'fraud_risk', 'orphan']
 
 export const TABS = [
-  ['summary', 'Summary'],
   ['map', 'Map columns'],
   ['clean', 'Clean Data'],
+  ['summary', 'Summary'],
   ['verify', 'Verify'],
   ['dashboard', 'Dashboard'],
   ['hospital', 'Hospital Data'],
   ['match', 'Match Review'],
   ['network', 'Network Analysis'],
   ['fraud', 'Fraud review'],
-  ['counter', 'Counter verification']
+  ['counter', 'Counter verification'],
+  ['sessions', 'Sessions']
 ]
 
 export function emptyClassifications() {
