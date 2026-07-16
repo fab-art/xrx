@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="100%" stop-color="#0F1123"/>
+    </linearGradient>
+    <path id="top-arc" d="M 96 256 A 160 160 0 0 1 416 256" fill="none"/>
+    <path id="bottom-arc" d="M 416 256 A 160 160 0 0 1 96 256" fill="none"/>
+    <radialGradient id="sun-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.45"/>
+      <stop offset="70%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Rounded square background (maskable-safe) -->
+  <rect x="0" y="0" width="512" height="512" rx="96" fill="url(#bg)"/>
+
+  <!-- Soft glow -->
+  <circle cx="256" cy="256" r="220" fill="url(#sun-glow)"/>
+
+  <!-- Outer ring -->
+  <circle cx="256" cy="256" r="210" fill="none" stroke="#F59E0B" stroke-width="11"/>
+
+  <!-- Curved outer text -->
+  <text fill="#F59E0B" font-size="34" font-weight="700" letter-spacing="6" font-family="Inter, Arial, sans-serif">
+    <textPath href="#top-arc" startOffset="50%" text-anchor="middle">RWANDA SOCIAL</textPath>
+  </text>
+  <text fill="#F59E0B" font-size="34" font-weight="700" letter-spacing="6" font-family="Inter, Arial, sans-serif">
+    <textPath href="#bottom-arc" startOffset="50%" text-anchor="middle">SECURITY BOARD</textPath>
+  </text>
+
+  <!-- Sunburst: 16 rays -->
+  <g>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(0 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(22.5 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(45 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(67.5 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(90 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(112.5 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(135 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(157.5 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(180 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(202.5 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(225 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(247.5 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(270 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(292.5 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(315 256 256)"/>
+    <path d="M 256 256 L 276 36 L 236 36 Z" fill="#F59E0B" opacity="0.92" transform="rotate(337.5 256 256)"/>
+  </g>
+
+  <!-- Inner white disc -->
+  <circle cx="256" cy="256" r="100" fill="#FFFFFF"/>
+
+  <!-- Deep-blue RSSB bar -->
+  <rect x="116" y="218" width="280" height="76" rx="12" fill="#1E3A8A"/>
+  <text x="256" y="270" text-anchor="middle" fill="#FFFFFF" font-size="58" font-weight="800" letter-spacing="2" font-family="Inter, Arial, sans-serif">RSSB</text>
+
+  <!-- Subtle ring accent -->
+  <circle cx="256" cy="256" r="100" fill="none" stroke="#D97706" stroke-width="3" opacity="0.5"/>
+</svg>

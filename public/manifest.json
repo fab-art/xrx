@@ -1,0 +1,59 @@
+{
+  "name": "RSSB Counter Verification System",
+  "short_name": "RSSB CVS",
+  "description": "Prepare, verify, and audit pharmacy voucher claims — map columns, review vouchers, flag fraud, and generate Anti Fraud and Counter Verification reports for the Rwanda Social Security Board.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0F1123",
+  "theme_color": "#1E3A8A",
+  "categories": ["business", "finance", "productivity", "utilities"],
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Upload pharmacy file",
+      "short_name": "Upload",
+      "description": "Start a new verification session by uploading a pharmacy voucher file",
+      "url": "/?action=upload",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Open saved sessions",
+      "short_name": "Sessions",
+      "description": "View and resume previously saved verification sessions",
+      "url": "/?action=sessions",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
+}
