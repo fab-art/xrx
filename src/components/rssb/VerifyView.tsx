@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useMemo, useState } from 'react';
 import { useSessionStore } from '@/store/session-store';
 import { useCardHelpers } from './use-card-helpers';

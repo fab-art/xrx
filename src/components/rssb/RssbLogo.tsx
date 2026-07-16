@@ -1,5 +1,3 @@
-'use client';
-
 /**
  * RSSB (Rwanda Social Security Board) logo — circular emblem.
  *

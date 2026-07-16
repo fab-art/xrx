@@ -1,5 +1,3 @@
-'use client';
-
 import { create } from 'zustand';
 import type {
   AuditAction, AuditLogEntry, Card, CleaningChange, CounterHeader, HospitalFile, MatchCategory,
