@@ -2,18 +2,60 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/logo.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#1e3a8a" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="RSSB Verify" />
-    <meta name="description" content="Prepare, verify, and audit pharmacy voucher claims. Map columns, clean data, review vouchers, flag fraud, and export Anti Fraud and Counter Verification reports." />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#1E3A8A" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0F1123" />
+
     <title>RSSB Counter Verification System</title>
+    <meta name="description" content="Prepare, verify, and audit pharmacy voucher claims — map columns, review vouchers, flag fraud, and generate Anti Fraud and Counter Verification reports." />
+    <meta name="application-name" content="RSSB Counter Verification System" />
+    <meta name="keywords" content="RSSB, pharmacy, voucher, verification, fraud, Rwanda, RAMA, claims" />
+    <meta name="author" content="RSSB — Rwanda Social Security Board" />
+    <meta name="creator" content="RSSB" />
+    <meta name="publisher" content="RSSB" />
+
+    <!-- PWA + iOS meta tags -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="RSSB Counter Verification System" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+    <link rel="icon" href="/icons/favicon.ico" sizes="any" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/icons/favicon-16.png" sizes="16x16" type="image/png" />
+
+    <!-- Open Graph / Twitter -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="RSSB Counter Verification System" />
+    <meta property="og:title" content="RSSB Counter Verification System" />
+    <meta property="og:description" content="Prepare, verify, and audit pharmacy voucher claims — map columns, review vouchers, flag fraud, and generate Anti Fraud and Counter Verification reports." />
+    <meta property="og:image" content="/icons/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="RSSB Counter Verification System" />
+    <meta name="twitter:description" content="Prepare, verify, and audit pharmacy voucher claims — map columns, review vouchers, flag fraud, and generate Anti Fraud and Counter Verification reports." />
+    <meta name="twitter:image" content="/icons/og-image.png" />
+
+    <!-- Preconnect + self-hosted-style font loading (no next/font server dependency) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet" />
+
+    <!-- Inline script: apply saved theme before paint to avoid a flash of the wrong theme -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('rssb-theme');
+          if (saved === 'dark') document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
   </head>
-  <body>
+  <body class="antialiased bg-background text-foreground min-h-screen">
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

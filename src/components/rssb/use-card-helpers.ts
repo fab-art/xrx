@@ -1,5 +1,3 @@
-'use client';
-
 // Mapping-bound helper hooks — bind the pure cardHelpers functions to the
 // current session's mapping so call sites stay clean.
 

@@ -1,5 +1,3 @@
-'use client';
-
 import { useMemo, useState, useCallback, useRef } from 'react';
 import { TABS } from '@/lib/rssb/config';
 import { useSessionStore } from '@/store/session-store';
