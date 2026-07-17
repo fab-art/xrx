@@ -1,5 +1,3 @@
-'use client';
-
 import { useSessionStore } from '@/store/session-store';
 import { FIELD_DEFS } from '@/lib/rssb/config';
 import { cleanCards, summarizeChanges } from '@/lib/rssb/dataCleaning';

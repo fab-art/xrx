@@ -1,5 +1,3 @@
-'use client';
-
 import { useSessionStore } from '@/store/session-store';
 import { useTheme } from './theme-provider';
 import { RssbLogo } from './RssbLogo';
@@ -9,7 +7,6 @@ import {
   CheckCircle2, FileSpreadsheet, ClipboardList, ShieldCheck, Pill, Shield,
   Search, FilePlus2, type LucideIcon,
 } from 'lucide-react';
-import { DownloadSourceButton } from './DownloadSourceButton';
 
 const FEATURES: { icon: LucideIcon; title: string; desc: string; badge?: string; stat?: string }[] = [
   { icon: Columns3, title: 'Smart column mapping', desc: 'Auto-detect and map Excel columns to fields', stat: 'Auto-map' },
@@ -130,7 +127,6 @@ export function LandingView() {
                   <History className="w-4 h-4" />
                   Open saved sessions
                 </button>
-                <DownloadSourceButton variant="ghost" size="md" label="Download source" className="px-6 py-3 ishema-cta-ghost" />
               </div>
 
               {/* Trust row */}
@@ -218,7 +214,6 @@ export function LandingView() {
           <div className="flex flex-wrap items-center justify-center gap-3 mt-1">
             <p className="text-[11px] text-slate-600">v1.0.0 · PWA</p>
             <span className="w-1 h-1 rounded-full bg-slate-700" />
-            <DownloadSourceButton variant="link" size="sm" label="Download source" className="ishema-cta-ghost text-[11px]" />
           </div>
         </div>
       </footer>

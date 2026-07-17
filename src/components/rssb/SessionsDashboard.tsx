@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useSessionStore } from '@/store/session-store';
 import {
@@ -20,7 +18,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { DownloadSourceButton } from './DownloadSourceButton';
 
 type SortOption = 'updated' | 'name-asc' | 'name-desc' | 'most-vouchers' | 'least-vouchers' | 'most-verified' | 'most-fraud';
 
@@ -415,7 +412,6 @@ export function SessionsDashboard() {
               <Plus className="w-4 h-4 relative z-10" />
               <span className="relative z-10">New session</span>
             </button>
-            <DownloadSourceButton variant="outline" size="md" label="Source ZIP" />
           </div>
         </div>
       </div>
